@@ -2,9 +2,9 @@
 
 import { useCallback, useState } from "react";
 
-type AlertType = "success" | "error" | "info";
+export type AlertType = "success" | "error" | "info";
 
-type AlertState = {
+export type AlertState = {
   type: AlertType;
   message: string;
 } | null;
