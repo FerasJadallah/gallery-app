@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import type { AlertType } from "@/hooks/use-alerts";
+import type { AlertType } from "@/hooks/use-alert";
 
 type AlertBannerProps = {
   variant: AlertType;

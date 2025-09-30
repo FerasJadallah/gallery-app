@@ -8,8 +8,10 @@ import { z } from "zod";
 import { supabase } from "@/app/supabase/client";
 import { AuthShell } from "@/components/auth/AuthShell";
 import { AlertBanner } from "@/components/ui/alert-banner";
-import { useAlert } from "@/hooks/use-alerts";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { useAlert } from "@/hooks/use-alert";
 
 const loginSchema = z.object({
   email: z.string().min(1, "Email is required").email("Please enter a valid email"),
@@ -17,8 +19,6 @@ const loginSchema = z.object({
 });
 
 type LoginValues = z.infer<typeof loginSchema>;
-
-type FieldErrors = Partial<Record<keyof LoginValues, string>>;
 
 const INITIAL_VALUES: LoginValues = {
   email: "",
@@ -29,7 +29,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { alert, showAlert, clearAlert } = useAlert();
   const [values, setValues] = useState<LoginValues>(INITIAL_VALUES);
-  const [errors, setErrors] = useState<FieldErrors>({});
+  const [errors, setErrors] = useState<Partial<Record<keyof LoginValues, string>>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const footer = (
@@ -97,61 +97,38 @@ export default function LoginPage() {
 
       <form className="space-y-5" onSubmit={onSubmit} noValidate>
         <div className="space-y-1">
-          <label className="block text-sm font-medium text-slate-700" htmlFor="email">
-            Email
-          </label>
-          <input
+          <Label htmlFor="email">Email</Label>
+          <Input
             id="email"
             type="email"
             autoComplete="email"
-            className={cn(
-              "w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none transition",
-              errors.email
-                ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
-                : "border-slate-200 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-            )}
             value={values.email}
             onChange={handleChange("email")}
             disabled={isSubmitting}
+            hasError={Boolean(errors.email)}
             required
           />
           {errors.email ? <p className="text-xs text-red-600">{errors.email}</p> : null}
         </div>
 
         <div className="space-y-1">
-          <label className="block text-sm font-medium text-slate-700" htmlFor="password">
-            Password
-          </label>
-          <input
+          <Label htmlFor="password">Password</Label>
+          <Input
             id="password"
             type="password"
             autoComplete="current-password"
-            className={cn(
-              "w-full rounded-lg border bg-white px-3 py-2 text-sm outline-none transition",
-              errors.password
-                ? "border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-200"
-                : "border-slate-200 focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
-            )}
             value={values.password}
             onChange={handleChange("password")}
             disabled={isSubmitting}
+            hasError={Boolean(errors.password)}
             required
           />
-          {errors.password ? (
-            <p className="text-xs text-red-600">{errors.password}</p>
-          ) : null}
+          {errors.password ? <p className="text-xs text-red-600">{errors.password}</p> : null}
         </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className={cn(
-            "w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition",
-            isSubmitting ? "cursor-not-allowed opacity-70" : "hover:bg-slate-800"
-          )}
-        >
+        <Button type="submit" disabled={isSubmitting} className="w-full">
           {isSubmitting ? "Signing in..." : "Sign in"}
-        </button>
+        </Button>
       </form>
     </AuthShell>
   );
