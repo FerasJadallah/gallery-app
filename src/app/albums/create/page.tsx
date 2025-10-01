@@ -6,10 +6,14 @@ import { z } from "zod";
 import slugify from "slugify";
 
 import { supabase } from "@/app/supabase/client";
+import { albumService } from "@/lib/albumService";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { BlockMessage } from "@/components/ui/block-message";
+import ImageUpload from "@/components/ui/ImageUpload";
 import { Label } from "@/components/ui/label";
 import { useAlert } from "@/hooks/use-alert";
 import { useAuth } from "@/contexts/AuthContext";
@@ -65,7 +69,8 @@ export default function CreateAlbumPage() {
     const nextFiles = [...files, ...selected].slice(0, MAX_FILES);
 
     if (files.length + selected.length > MAX_FILES) {
-      showAlert("error", `You can upload up to ${MAX_FILES} images.`);
+      showAlert("error", `You can only upload up to ${MAX_FILES} images at a time.`);
+      return;
     }
 
     setFiles(nextFiles);
@@ -117,24 +122,17 @@ export default function CreateAlbumPage() {
       setIsSubmitting(true);
       setUploadProgress({});
 
-      // Create album record
-      const { data: albumInsert, error: albumError } = await supabase
-        .from("albums")
-        .insert({
-          user_id: user.id,
-          title: parsed.title,
-          slug: parsed.slug,
-          description: parsed.description || null,
-          privacy: parsed.privacy,
-        })
-        .select("id")
-        .single();
+      // Create album record via service
+      const created = await albumService.createAlbum({
+        user_id: user.id,
+        title: parsed.title,
+        slug: parsed.slug,
+        description: parsed.description || null,
+        privacy: parsed.privacy,
+        cover_url: null,
+      } as any);
 
-      if (albumError || !albumInsert) {
-        throw new Error(albumError?.message || "Failed to create album");
-      }
-
-      const albumId = albumInsert.id;
+      const albumId = created.id;
       const uploadedPhotos: { url: string; path: string }[] = [];
 
       // Upload images
@@ -166,19 +164,17 @@ export default function CreateAlbumPage() {
 
       // Create photo records and update album cover
       if (uploadedPhotos.length > 0) {
-        const { error: photosError } = await supabase
-          .from("album_images") // Changed from "photos" to "album_images" to match your schema
-          .insert(
+        try {
+          await albumService.addImagesToAlbum(
+            albumId,
             uploadedPhotos.map((photo) => ({
-              album_id: albumId,
               storage_path: photo.path,
-              display_order: 0, // Add this as it's required in your schema
+              display_order: 0,
             }))
           );
-
-        if (photosError) {
-          console.error("Photos error:", photosError);
-          throw new Error("Failed to create photo records");
+        } catch (imageError) {
+          console.error('Error adding images:', imageError);
+          throw new Error('Failed to add images to album. Please try again.');
         }
       }
 
@@ -209,7 +205,7 @@ export default function CreateAlbumPage() {
             <CardDescription>Describe the collection you are about to build.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {alert && <AlertBanner variant={alert.type} message={alert.message} />}
+            {alert && <AlertBanner type={alert.type} message={alert.message} />}
 
             <form className="space-y-6" onSubmit={onSubmit}>
               {/* Title field */}
@@ -232,7 +228,7 @@ export default function CreateAlbumPage() {
               {/* Description field */}
               <div className="space-y-2">
                 <Label htmlFor="description">Description</Label>
-                <textarea
+                <Textarea
                   id="description"
                   value={description}
                   onChange={(e) => {
@@ -241,7 +237,6 @@ export default function CreateAlbumPage() {
                   }}
                   placeholder="Optional summary for your album"
                   rows={4}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
                 />
                 {errors.description && (
                   <p className="text-xs text-red-600">{errors.description}</p>
@@ -294,14 +289,28 @@ export default function CreateAlbumPage() {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="images">Images</Label>
-                  <Input
-                    id="images"
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    hasError={Boolean(errors.files) || isOverFileLimit}
-                  />
+                  {isOverFileLimit ? (
+                    <BlockMessage
+                      type="error"
+                      title="Too many images selected"
+                      description={`You can only upload up to ${MAX_FILES} images at a time. Please remove some images before adding more.`}
+                    />
+                  ) : (
+                    <ImageUpload onSelect={(selected) => {
+                      const totalFiles = files.length + selected.length;
+                      if (totalFiles > MAX_FILES) {
+                        showAlert("error", `You can only upload up to ${MAX_FILES} images at a time.`);
+                        return;
+                      }
+                      const nextFiles = [...files, ...selected];
+                      setFiles(nextFiles);
+                      setErrors((prev) => ({ ...prev, files: undefined }));
+                      if (!coverPreview && nextFiles[0]) {
+                        const previewUrl = URL.createObjectURL(nextFiles[0]);
+                        setCoverPreview(previewUrl);
+                      }
+                    }} />
+                  )}
                   <p className="text-xs text-slate-500">
                     Upload up to {MAX_FILES} images (PNG, JPG, WebP). Each must be 5MB or smaller.
                   </p>
@@ -358,9 +367,25 @@ export default function CreateAlbumPage() {
                 )}
               </div>
 
-              <Button type="submit" disabled={isSubmitting} className="w-full">
-                {isSubmitting ? "Creating album..." : "Create album"}
-              </Button>
+              <div className="flex gap-4">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="flex-1"
+                  onClick={() => router.push('/dashboard')}
+                  disabled={isSubmitting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="flex-1"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Creating album..." : "Create album"}
+                </Button>
+              </div>
             </form>
           </CardContent>
         </Card>

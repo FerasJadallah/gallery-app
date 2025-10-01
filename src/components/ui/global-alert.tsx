@@ -13,7 +13,7 @@ export function GlobalAlert() {
       className="fixed top-4 left-1/2 z-50 w-full max-w-md -translate-x-1/2"
       onClick={clearAlert}
     >
-      <AlertBanner variant={alert.type} message={alert.message} />
+      <AlertBanner type={alert.type} message={alert.message} />
     </div>
   );
 }

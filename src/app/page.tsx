@@ -1,23 +1,34 @@
-import { cookies } from "next/headers";
-import Image from "next/image";
+"use client";
+
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import { supabase } from "@/app/supabase/client";
+import { albumService } from "@/lib/albumService";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import AlbumCard from "@/components/ui/AlbumCard";
+import { Input } from "@/components/ui/input";
 
 const BUTTON_CLASSES =
   "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800";
 
-export default async function PublicFeedPage() {
-  const { data: albums, error } = await supabase
-    .from("albums")
-    .select("id, title, description, album_images(storage_path)")
-    .eq("privacy", "public")
-    .order("created_at", { ascending: false });
+export default function PublicFeedPage() {
+  const [albums, setAlbums] = useState<any[] | null>(null);
+  const [q, setQ] = useState("");
 
-  if (error) {
-    console.error("Error loading albums:", error.message);
-  }
+  useState(() => {
+    albumService
+      .getPublicAlbumsWithCreators()
+      .then((data) => setAlbums(data))
+      .catch((e) => console.error("Error loading albums:", e?.message));
+  });
+
+  const filtered = useMemo(() => {
+    if (!albums) return [];
+    const term = q.trim().toLowerCase();
+    if (!term) return albums;
+    return albums.filter((a) => (a.title || "").toLowerCase().includes(term));
+  }, [albums, q]);
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-16">
@@ -30,53 +41,32 @@ export default async function PublicFeedPage() {
           <p className="mx-auto max-w-2xl text-base text-slate-600">
             Browse featured albums, follow creators you love, and start building your own collection.
           </p>
-          <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
-            <Link href="/signup" className={BUTTON_CLASSES}>
-              Create your account
-            </Link>
-            <Link
-              href="/login"
-              className="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white"
-            >
-              Already registered? Log in
-            </Link>
+          <div className="mx-auto flex w-full max-w-md flex-col items-stretch gap-3">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search albums by title..."
+            />
           </div>
         </header>
 
         <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {albums?.map((album) => {
-            const coverPath = album.album_images?.[0]?.storage_path;
+          {filtered.map((album) => {
+            // Prefer image with display_order === 0, else fallback to first
+            const images = Array.isArray(album.album_images) ? album.album_images : [];
+            const preferred = images.find((img: any) => img.display_order === 0) ?? images[0];
+            const coverPath = preferred?.storage_path;
             const publicUrl = coverPath
-              ? supabase.storage.from("albums").getPublicUrl(coverPath).data.publicUrl
+              ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl
               : null;
-
             return (
-              <Card key={album.id} className="overflow-hidden">
-                <div className="relative h-48 w-full overflow-hidden bg-slate-200">
-                  {publicUrl && (
-                    <Image
-                      src={publicUrl}
-                      alt={album.title}
-                      fill
-                      sizes="(min-width: 1024px) 33vw, (min-width: 640px) 50vw, 100vw"
-                      className="object-cover transition duration-300 hover:scale-105"
-                      priority={false}
-                    />
-                  )}
-                </div>
-                <CardHeader>
-                  <CardTitle>{album.title}</CardTitle>
-                  <CardDescription>{album.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Link
-                    href={`/albums/${album.id}`}
-                    className="text-sm font-medium text-slate-900 underline-offset-4 hover:underline"
-                  >
-                    View album →
-                  </Link>
-                </CardContent>
-              </Card>
+              <AlbumCard
+                key={album.id}
+                id={album.id}
+                title={album.title}
+                description={album.description}
+                coverUrl={publicUrl}
+              />
             );
           })}
         </section>

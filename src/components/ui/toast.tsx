@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <div className="fixed bottom-6 right-6 flex w-80 flex-col gap-3">
         {toasts.map((toast) => (
-          <AlertBanner key={toast.id} variant={toast.variant} message={toast.message} />
+          <AlertBanner key={toast.id} type={toast.variant} message={toast.message} />
         ))}
       </div>
     </ToastContext.Provider>

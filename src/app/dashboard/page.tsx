@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
+import { albumService } from "@/lib/albumService";
+import AlbumCard from "@/components/ui/AlbumCard";
 import { supabase } from "@/app/supabase/client";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
@@ -26,6 +28,10 @@ type Album = {
   createdAt: string;
   coverUrl: string | null;
   privacy: "public" | "private";
+  creator: {
+    username: string | null;
+    full_name: string | null;
+  } | null;
 };
 
 type FetchState = "idle" | "loading" | "success" | "error";
@@ -33,6 +39,28 @@ type FetchState = "idle" | "loading" | "success" | "error";
 export default function DashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const [profile, setProfile] = useState<{ full_name: string | null } | null>(null);
+
+  // Fetch user profile
+  useEffect(() => {
+    async function fetchProfile() {
+      if (!user?.id) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('full_name')
+        .eq('id', user.id)
+        .single();
+
+      if (!error && data) {
+        setProfile(data);
+      }
+    }
+
+    fetchProfile();
+  }, [user?.id]);
+
+  const displayName = profile?.full_name || user?.email || "";
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>("idle");
@@ -44,30 +72,40 @@ export default function DashboardPage() {
     setFetchState("loading");
     setErrorMessage("");
 
-    const { data, error } = await supabase
-      .from("albums")
-      .select("id, title, description, created_at, privacy, cover_url")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+    try {
+      // Use service with creator profiles
+      const data = await albumService.getUserAlbumsWithCreators(user.id);
 
-    if (error) {
+      const parsed: Album[] = (data ?? []).map((row: any) => {
+        const images = Array.isArray(row.album_images) ? row.album_images : [];
+        const preferred = images.find((i: any) => i.display_order === 0) ?? images[0];
+        const coverPath = preferred?.storage_path;
+        const coverUrl = coverPath
+          ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl
+          : null;
+        return {
+          id: row.id,
+          title: row.title ?? "Untitled album",
+          description: row.description ?? null,
+          createdAt: row.created_at,
+          coverUrl,
+          privacy: row.privacy === "public" ? "public" : "private",
+          creator: row.profiles ? {
+            username: row.profiles.username,
+            full_name: row.profiles.full_name
+          } : null,
+        };
+      });
+
+      setAlbums(parsed);
+      setFetchState("success");
+    } catch (error: any) {
       console.error("Failed to load albums", error);
       setFetchState("error");
-      setErrorMessage(error.message || "We couldn't load your albums. Please try again.");
+      setErrorMessage(error?.message || "We couldn't load your albums. Please try again.");
       return;
     }
 
-    const parsed: Album[] = (data ?? []).map((row) => ({
-      id: row.id,
-      title: row.title ?? "Untitled album",
-      description: row.description ?? null,
-      createdAt: row.created_at,
-      coverUrl: typeof row.cover_url === "string" ? row.cover_url : null,
-      privacy: row.privacy === "public" ? "public" : "private",
-    }));
-
-    setAlbums(parsed);
-    setFetchState("success");
   }, [user]);
 
   useEffect(() => {
@@ -96,7 +134,7 @@ export default function DashboardPage() {
           <div className="space-y-1">
             <p className="text-sm font-medium uppercase tracking-[0.3em] text-slate-500">My albums</p>
             <h1 className="text-3xl font-semibold text-slate-900">
-              Welcome back{user ? `, ${user.email}` : ""}
+              Welcome back{displayName ? `, ${displayName}` : ""}
             </h1>
             <p className="text-sm text-slate-600">Create albums to organize and share your work.</p>
           </div>
@@ -104,13 +142,13 @@ export default function DashboardPage() {
             <Button variant="secondary" onClick={handleRefresh} disabled={isLoading}>
               {isLoading ? "Refreshing" : "Refresh"}
             </Button>
-            <Link href="/albums/new" className={PRIMARY_BUTTON_CLASSES}>
+            <Link href="/albums/create" className={PRIMARY_BUTTON_CLASSES}>
               Create album
             </Link>
           </div>
         </header>
 
-        {errorMessage && <AlertBanner variant="error" message={errorMessage} />}
+        {errorMessage && <AlertBanner type="error" message={errorMessage} />}
 
         {isLoading && (
           <Card>
@@ -130,7 +168,7 @@ export default function DashboardPage() {
             </CardHeader>
             <CardContent className="flex flex-col items-start gap-3">
               <p className="text-sm text-slate-600">Albums keep your photos organized and easy to share.</p>
-              <Link href="/albums/new" className={PRIMARY_BUTTON_CLASSES}>
+              <Link href="/albums/create" className={PRIMARY_BUTTON_CLASSES}>
                 Create album
               </Link>
             </CardContent>
@@ -140,35 +178,21 @@ export default function DashboardPage() {
         {fetchState === "success" && albums.length > 0 && (
           <div className="grid gap-6 md:grid-cols-2">
             {albums.map((album) => (
-              <Card key={album.id}>
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-3">
-                    <CardTitle className="truncate">{album.title}</CardTitle>
-                    <span className={`${BADGE_BASE} ${BADGE_VARIANTS[album.privacy]}`}>
-                      {album.privacy === "public" ? "Public" : "Private"}
-                    </span>
-                  </div>
-                  {album.description && (
-                    <CardDescription className="line-clamp-2">{album.description}</CardDescription>
-                  )}
-                </CardHeader>
-                <CardContent className="flex flex-col gap-3 text-sm text-slate-600">
-                  <p>
-                    Created{" "}
-                    {new Date(album.createdAt).toLocaleDateString(undefined, {
-                      dateStyle: "medium",
-                    })}
-                  </p>
-                  <div className="flex gap-3">
-                    <Button asChild variant="ghost">
-                      <Link href={`/albums/${album.id}`}>View album</Link>
-                    </Button>
-                    <Button asChild variant="secondary">
-                      <Link href={`/albums/${album.id}/edit`}>Edit</Link>
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
+              <div key={album.id} className="space-y-2">
+                <AlbumCard
+                  id={album.id}
+                  title={album.title}
+                  description={album.description}
+                  coverUrl={album.coverUrl}
+                  href={`/albums/${album.id}`}
+                  creator={album.creator}
+                />
+                <div className="flex gap-3">
+                  <Button asChild variant="secondary">
+                    <Link href={`/albums/${album.id}/edit`}>Edit</Link>
+                  </Button>
+                </div>
+              </div>
             ))}
           </div>
         )}

@@ -17,7 +17,13 @@ const signupSchema = z
   .object({
     email: z.string().email("Please enter a valid email address."),
     password: z.string().min(8, "Password must be at least 8 characters long."),
-    confirmPassword: z.string()
+    confirmPassword: z.string(),
+    fullName: z.string().min(2, "Please enter your full name."),
+    username: z
+      .string()
+      .min(3, "Username must be at least 3 characters.")
+      .max(20, "Username must be at most 20 characters.")
+      .regex(/^[a-z][a-z0-9_]*$/, "Use lowercase letters, numbers, and underscore; start with a letter."),
   })
   .superRefine(({ password, confirmPassword }, ctx) => {
     if (password !== confirmPassword) {
@@ -34,7 +40,9 @@ type SignupValues = z.infer<typeof signupSchema>;
 const INITIAL_VALUES: SignupValues = {
   email: "",
   password: "",
-  confirmPassword: ""
+  confirmPassword: "",
+  fullName: "",
+  username: "",
 };
 
 export default function SignupPage() {
@@ -43,8 +51,6 @@ export default function SignupPage() {
   const [values, setValues] = useState<SignupValues>(INITIAL_VALUES);
   const [errors, setErrors] = useState<Partial<Record<keyof SignupValues, string>>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const footer = (
     <p>
@@ -72,24 +78,41 @@ export default function SignupPage() {
       setErrors({
         email: fieldErrors.email?.[0],
         password: fieldErrors.password?.[0],
-        confirmPassword: fieldErrors.confirmPassword?.[0]
+        confirmPassword: fieldErrors.confirmPassword?.[0],
+        fullName: fieldErrors.fullName?.[0],
+        username: fieldErrors.username?.[0],
       });
       showAlert("error", "Please fix the highlighted issues and try signing up again.");
       return;
     }
 
-    const { email, password } = parsed.data;
+    const { email, password, fullName, username } = parsed.data;
     setIsSubmitting(true);
 
     try {
-      console.log('Attempting signup with:', { email });
+      console.log('Attempting signup with:', { email, username: username.toLowerCase(), fullName });
+
+      // First check if username is taken
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('username')
+        .eq('username', username.toLowerCase())
+        .single();
+
+      if (existingProfile) {
+        showAlert('error', 'This username is already taken. Please choose another one.');
+        return;
+      }
 
       // Proceed with signup
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/setup-profile`,
+          data: {
+            full_name: fullName,
+            username: username.toLowerCase()
+          }
         }
       });
 
@@ -104,8 +127,24 @@ export default function SignupPage() {
         return;
       }
 
-      showAlert('success', 'Please check your email to verify your account.');
-      router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+      // Wait a moment for the trigger to create the profile
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Verify profile creation
+      const { data: profile, error: profileVerifyError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profileVerifyError) {
+        console.error('Profile verification error:', profileVerifyError);
+        showAlert('error', 'Account created but profile setup failed. Please contact support.');
+      } else {
+        console.log('Profile created successfully:', profile);
+        showAlert('success', 'Account created successfully! Please check your email to confirm your account.');
+        router.push('/login');
+      }
     } catch (err) {
       console.error('Unexpected error during signup:', err);
       showAlert('error', 'An unexpected error occurred. Please try again.');
@@ -118,10 +157,11 @@ export default function SignupPage() {
     <AuthShell title="Create an account" footer={footer}>
       <div className="flex w-full flex-col gap-6">
         <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900">Create an account</h1>
           <p className="text-sm text-slate-600">Create an account to share your photo albums with friends and family.</p>
         </div>
 
-        {alert && <AlertBanner {...alert} />}
+        {alert && <AlertBanner {...alert} variant={alert.type} />}
 
         <form onSubmit={onSubmit} className="flex flex-col gap-4">
           <div>
@@ -136,63 +176,56 @@ export default function SignupPage() {
             />
           </div>
 
+          <div>
+            <Label htmlFor="fullName">Full name</Label>
+            <Input
+              id="fullName"
+              type="text"
+              value={values.fullName}
+              onChange={handleChange("fullName")}
+              hasError={!!errors.fullName}
+              required
+            />
+          </div>
 
+          <div>
+            <Label htmlFor="username">Username</Label>
+            <Input
+              id="username"
+              type="text"
+              value={values.username}
+              onChange={handleChange("username")}
+              hasError={!!errors.username}
+              required
+            />
+          </div>
 
           <div>
             <Label htmlFor="password">Password</Label>
-            <div className="relative">
-              <Input
-                id="password"
-                type={showPassword ? "text" : "password"}
-                value={values.password}
-                onChange={handleChange("password")}
-                hasError={!!errors.password || (values.password.length > 0 && values.password.length < 8)}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-slate-700 hover:text-slate-900"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-            {values.password.length > 0 && values.password.length < 8 && (
-              <p className="text-xs text-red-600">Minimum 8 characters</p>
-            )}
-            {errors.password && <p className="text-xs text-red-600">{errors.password}</p>}
+            <Input
+              id="password"
+              type="password"
+              value={values.password}
+              onChange={handleChange("password")}
+              hasError={!!errors.password}
+              required
+            />
           </div>
 
           <div>
             <Label htmlFor="confirmPassword">Confirm password</Label>
-            <div className="relative">
-              <Input
-                id="confirmPassword"
-                type={showConfirmPassword ? "text" : "password"}
-                value={values.confirmPassword}
-                onChange={handleChange("confirmPassword")}
-                hasError={!!errors.confirmPassword}
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirmPassword((v) => !v)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs text-slate-700 hover:text-slate-900"
-                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-              >
-                {showConfirmPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-            {errors.confirmPassword && <p className="text-xs text-red-600">{errors.confirmPassword}</p>}
+            <Input
+              id="confirmPassword"
+              type="password"
+              value={values.confirmPassword}
+              onChange={handleChange("confirmPassword")}
+              hasError={!!errors.confirmPassword}
+              required
+            />
           </div>
 
-          <Button 
-            type="submit" 
-            disabled={isSubmitting}
-            variant="primary"
-          >
-            {isSubmitting ? 'Creating account...' : 'Create account'}
+          <Button type="submit" disabled={isSubmitting}>
+            Create account
           </Button>
         </form>
       </div>

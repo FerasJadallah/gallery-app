@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { FormEvent, useEffect, useState } from "react";
 
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAlert } from "@/hooks/use-alert";
+import { albumService } from "@/lib/albumService";
+import { useAuth } from "@/contexts/AuthContext";
+import ImageUpload from "@/components/ui/ImageUpload";
+import { supabase } from "@/app/supabase/client";
 
 const LINK_CLASSES = "inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white";
 
@@ -17,11 +21,40 @@ export default function EditAlbumPage() {
   const params = useParams();
   const albumId = params?.id as string;
   const { alert, showAlert, clearAlert } = useAlert();
-  const [title, setTitle] = useState("Untitled album");
-  const [description, setDescription] = useState("This description is a placeholder. Replace with real content.");
+  const router = useRouter();
+  const { user, loading } = useAuth();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [privacy, setPrivacy] = useState<"public" | "private">("private");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [images, setImages] = useState<{ storage_path: string; display_order: number }[]>([]);
+  const [uploading, setUploading] = useState(false);
 
-  const onSubmit = (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const { album, images } = await albumService.getAlbumWithImages(albumId);
+        // Auth/owner guard
+        if (!user) {
+          router.replace(`/login?next=/albums/${albumId}/edit`);
+          return;
+        }
+        if ((album as any).user_id && user.id !== (album as any).user_id) {
+          router.replace(`/albums/${albumId}`);
+          return;
+        }
+        setTitle(album.title ?? "");
+        setDescription(album.description ?? "");
+        setPrivacy((album.privacy as any) === "public" ? "public" : "private");
+        setImages(images as any);
+      } catch (e: any) {
+        showAlert("error", e?.message ?? "Failed to load album");
+      }
+    };
+    if (!loading && albumId) void run();
+  }, [albumId, loading, router, showAlert, user]);
+
+  const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     clearAlert();
 
@@ -30,11 +63,65 @@ export default function EditAlbumPage() {
       return;
     }
 
-    setIsSubmitting(true);
-    setTimeout(() => {
+    try {
+      setIsSubmitting(true);
+      await albumService.updateAlbum(albumId, {
+        title: title.trim(),
+        description: description.trim() || null,
+        privacy,
+      } as any);
       showAlert("success", "Album updated. Redirecting to the detail page...");
+      setTimeout(() => router.push(`/albums/${albumId}`), 900);
+    } catch (e: any) {
+      showAlert("error", e?.message ?? "Failed to update album");
+    } finally {
       setIsSubmitting(false);
-    }, 800);
+    }
+  };
+
+  const handleAddImages = async (files: File[]) => {
+    if (!user) return;
+    try {
+      setUploading(true);
+      const uploaded: { path: string }[] = [];
+      for (const file of files) {
+        const ext = file.name.split(".").pop();
+        const path = `${user.id}/${albumId}/${crypto.randomUUID()}.${ext}`;
+        const { error: uploadError } = await supabase.storage
+          .from("album-images")
+          .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
+        if (uploadError) throw uploadError;
+        uploaded.push({ path });
+      }
+      const start = images.length > 0 ? Math.max(...images.map((i) => i.display_order)) + 1 : 0;
+      await albumService.addImagesToAlbum(
+        albumId,
+        uploaded.map((u, idx) => ({ storage_path: u.path, display_order: start + idx }))
+      );
+      const { images: refreshed } = await albumService.getAlbumWithImages(albumId);
+      setImages(refreshed as any);
+      showAlert("success", "Images added");
+    } catch (e: any) {
+      showAlert("error", e?.message ?? "Failed to add images");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeleteImage = async (storagePath: string) => {
+    try {
+      const { error: removeErr } = await supabase.storage.from("album-images").remove([storagePath]);
+      if (removeErr) throw removeErr;
+      const { error: dbErr } = await supabase
+        .from("album_images")
+        .delete()
+        .eq("album_id", albumId)
+        .eq("storage_path", storagePath);
+      if (dbErr) throw dbErr;
+      setImages((prev) => prev.filter((i) => i.storage_path !== storagePath));
+    } catch (e: any) {
+      showAlert("error", e?.message ?? "Failed to delete image");
+    }
   };
 
   return (
@@ -43,7 +130,7 @@ export default function EditAlbumPage() {
         <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-medium uppercase tracking-[0.3em] text-slate-500">Edit album</p>
-            <h1 className="text-3xl font-semibold text-slate-900">Album #{albumId}</h1>
+            <h1 className="text-3xl font-semibold text-slate-900">{title || `Album #${albumId}`}</h1>
           </div>
           <Link href={`/albums/${albumId}`} className={LINK_CLASSES}>
             Cancel
@@ -57,7 +144,7 @@ export default function EditAlbumPage() {
           </CardHeader>
           <CardContent>
             {alert ? (
-              <AlertBanner variant={alert.type} message={alert.message} className="mb-4" />
+              <AlertBanner type={alert.type} message={alert.message} className="mb-4" />
             ) : null}
 
             <form className="space-y-5" onSubmit={onSubmit}>
@@ -80,6 +167,32 @@ export default function EditAlbumPage() {
                 />
               </div>
 
+              <div className="space-y-1">
+                <Label>Privacy</Label>
+                <div className="flex gap-4 text-sm">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="privacy"
+                      value="public"
+                      checked={privacy === "public"}
+                      onChange={() => setPrivacy("public")}
+                    />
+                    Public
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="privacy"
+                      value="private"
+                      checked={privacy === "private"}
+                      onChange={() => setPrivacy("private")}
+                    />
+                    Private
+                  </label>
+                </div>
+              </div>
+
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? "Saving..." : "Save changes"}
@@ -89,6 +202,33 @@ export default function EditAlbumPage() {
                 </Link>
               </div>
             </form>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>Images</CardTitle>
+            <CardDescription>Add or remove images in this album.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <ImageUpload onSelect={(files) => void handleAddImages(files)} />
+            {uploading && <p className="text-sm text-slate-600">Uploading...</p>}
+            <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
+              {images.map((img) => {
+                const url = supabase.storage.from("album-images").getPublicUrl(img.storage_path).data.publicUrl;
+                return (
+                  <div key={img.storage_path} className="relative">
+                    <img src={url ?? ""} alt="Album image" className="aspect-square w-full rounded-lg object-cover" />
+                    <button
+                      type="button"
+                      className="absolute right-2 top-2 rounded bg-white/80 px-2 py-1 text-xs text-red-700 shadow hover:bg白"
+                      onClick={() => void handleDeleteImage(img.storage_path)}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </CardContent>
         </Card>
       </div>
