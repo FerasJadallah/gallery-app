@@ -93,7 +93,7 @@ export default function LoginPage() {
       description="Sign in to continue managing your gallery."
       footer={footer}
     >
-      {alert ? <AlertBanner variant={alert.type} message={alert.message} /> : null}
+      {alert ? <AlertBanner type={alert.type} message={alert.message} /> : null}
 
       <form className="space-y-5" onSubmit={onSubmit} noValidate>
         <div className="space-y-1">
