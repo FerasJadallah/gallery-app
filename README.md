@@ -1,36 +1,90 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gallery App
 
-## Getting Started
+A full-stack photo album manager built with Next.js App Router and Supabase.
 
-First, run the development server:
+## Tech Choices
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- **Supabase** provides Postgres storage, row-level security, and Supabase Storage buckets for image assets. It integrates cleanly with Next.js via the JS client, enabling auth, SQL, and object storage in a single managed service.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Clone the repository and install dependencies:
+   ```bash
+   npm install
+   ```
+2. Copy `.env.example` to `.env.local` and fill in your Supabase project values:
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=your-project-url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+   ```
+   Optionally include the service role key for CLI migrations if you need to run them locally.
+3. Start the dev server:
+   ```bash
+   npm run dev
+   ```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Deployment to Vercel
 
-## Learn More
+1. Push the repository to GitHub.
+2. Create a new Vercel project from the repo.
+3. In the Vercel dashboard, set environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Trigger a build. Vercel will run `npm install` and `npm run build` automatically.
+5. After the first deploy, run the Supabase migrations (see below) using the Supabase CLI or the dashboard SQL editor.
 
-To learn more about Next.js, take a look at the following resources:
+## Database Schema & Rules
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Tables**
+  - `profiles`: user profile linked to `auth.users` (columns: `id`, `email`, `username`, `full_name`, timestamps).
+  - `albums`: stores album metadata (`id`, `user_id`, `title`, `description`, `privacy`, timestamps, `slug`, optional `cover_url`).
+  - `album_images`: references `albums` with `album_id`, stores `storage_path` in Supabase Storage and `display_order`.
+- **Row-Level Security (Supabase migration `20251001000000_profiles_rls.sql`)**
+  - Enable RLS on `profiles`.
+  - Insert/update/delete policies restrict changes to the owner (`auth.uid() = id`).
+  - Select policy allows authenticated users to read profiles.
+  - Trigger `handle_new_user` keeps `profiles` in sync with `auth.users` signups.
+- Similar policies should be added for `albums` and `album_images` in production to prevent unauthorized access (currently enforced at the application layer).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Decisions & Trade-offs
 
-## Deploy on Vercel
+- **Supabase over Firebase**: better SQL workflow, native Postgres, and first-class object storage for image assets.
+- **Client-side Supabase access**: Lazily instantiates the client with `getSupabaseClient()` to avoid breaking prerendered routes when env vars are missing.
+- **Image handling**: uses Supabase Storage public buckets with pre-signed URLs for simplicity; swapping to signed URLs would improve privacy but adds complexity.
+- **Turbopack (Next.js 15)**: opted into Turbopack for faster dev builds, but the build sometimes requires the fallback `NEXT_FORCE_SWC=true next build` in CI due to platform limitations.
+- **Known limitations**:
+  - No pagination/virtualization for large album lists.
+  - Client-side filtering only (no server search).
+  - RLS policies for `albums`/`album_images` should be hardened before production.
+  - No automated test suite yet; linting is the primary guard.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Testing & Quality
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Lint and type-check:
+  ```bash
+  npm run lint
+  ```
+- Additional integration or unit tests are not set up; add them under `src/__tests__` and run via a chosen test runner (e.g., Vitest/Jest) if needed.
+
+## Supabase Migrations
+
+- Run migrations with the Supabase CLI:
+  ```bash
+  supabase db push
+  ```
+  Ensure `SUPABASE_DB_URL` and service role env values are configured when running migrations locally.
+
+## Storage Buckets
+
+- Supabase Storage bucket `album-images` hosts uploaded images.
+- Ensure the bucket is public or configure signed access; the app generates public URLs for previews.
+
+## Deployment Checklist
+
+- [ ] Supabase project with `profiles`, `albums`, `album_images` tables.
+- [ ] RLS policies applied (profiles migration provided; extend for albums/images).
+- [ ] Storage bucket `album-images` created.
+- [ ] Vercel env vars configured.
+- [ ] Run `npm run lint` and `npm run build` locally before pushing.
+
+Happy shipping! 🚀
