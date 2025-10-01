@@ -30,7 +30,16 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const supabase = useMemo(() => getSupabaseClient(), []);
+  const hasSupabaseEnv = Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+
+  const supabase = useMemo<SupabaseClient | null>(() => {
+    if (!hasSupabaseEnv) {
+      return null;
+    }
+    return getSupabaseClient();
+  }, [hasSupabaseEnv]);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,6 +51,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+
+    if (!supabase) {
+      setLoading(false);
+      return () => {
+        isMounted = false;
+      };
+    }
 
     const init = async () => {
       setLoading(true);
@@ -73,6 +89,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithPassword = useCallback<AuthContextValue["signInWithPassword"]>(
     async (credentials) => {
+      if (!supabase) {
+        throw new Error(
+          "Supabase environment variables are not configured. Unable to sign in."
+        );
+      }
       const result = await supabase.auth.signInWithPassword(credentials);
       if (result.error) {
         console.error("Supabase sign-in failed", result.error);
@@ -86,6 +107,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback<AuthContextValue["signOut"]>(
     async () => {
+      if (!supabase) {
+        throw new Error(
+          "Supabase environment variables are not configured. Unable to sign out."
+        );
+      }
       const result = await supabase.auth.signOut();
       if (result.error) {
         console.error("Supabase sign-out failed", result.error);
@@ -99,6 +125,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshSession = useCallback<AuthContextValue["refreshSession"]>(
     async () => {
+      if (!supabase) {
+        return {
+          data: { session: null },
+          error: null,
+        };
+      }
       const result = await supabase.auth.getSession();
       if (result.error) {
         console.error("Failed to refresh Supabase session", result.error);
