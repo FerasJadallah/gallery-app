@@ -6,7 +6,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { z } from "zod";
 import slugify from "slugify";
 
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import { albumService } from "@/lib/albumService";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ export default function CreateAlbumPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { alert, showAlert, clearAlert } = useAlert();
+  const supabase = useMemo(() => getSupabaseClient(), []);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");

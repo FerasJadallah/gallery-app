@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { albumService } from "@/lib/albumService";
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { LoadedAlbumState } from "@/types";
 
@@ -22,6 +22,7 @@ export default function AlbumDetailPage() {
   const params = useParams();
   const albumId = params?.id as string;
   const { user } = useAuth();
+  const supabase = useMemo(() => getSupabaseClient(), []);
 
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -47,7 +48,7 @@ export default function AlbumDetailPage() {
     return () => {
       ignore = true;
     };
-  }, [albumId, user?.id]);
+  }, [albumId, supabase, user?.id]);
 
   const coverUrl = useMemo(() => {
     if (state.kind !== "loaded") return null;
@@ -62,7 +63,7 @@ export default function AlbumDetailPage() {
     if (!preferred?.storage_path) return null;
     
     return supabase.storage.from("album-images").getPublicUrl(preferred.storage_path).data.publicUrl;
-  }, [state]);
+  }, [state, supabase]);
 
   if (state.kind === "error") {
     return (

@@ -1,6 +1,6 @@
 "use client";
 
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import type { AuthError, Session, User } from "@supabase/supabase-js";
 import {
   ReactNode,
@@ -29,6 +29,7 @@ type AuthContextValue = {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const supabase = useMemo(() => getSupabaseClient(), []);
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isMounted = false;
       listener?.subscription.unsubscribe();
     };
-  }, [applySession]);
+  }, [applySession, supabase]);
 
   const signInWithPassword = useCallback<
     AuthContextValue["signInWithPassword"]
@@ -79,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applySession(result.data.session);
     }
     return result;
-  }, [applySession]);
+  }, [applySession, supabase]);
 
   const signOut = useCallback<AuthContextValue["signOut"]>(async () => {
     const result = await supabase.auth.signOut();
@@ -89,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       applySession(null);
     }
     return result;
-  }, [applySession]);
+  }, [applySession, supabase]);
 
   const refreshSession = useCallback<AuthContextValue["refreshSession"]>(async () => {
     const result = await supabase.auth.getSession();

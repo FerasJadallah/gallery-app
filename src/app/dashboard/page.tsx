@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { albumService, type AlbumPreview } from "@/lib/albumService";
 import AlbumCard from "@/components/ui/AlbumCard";
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<{ full_name: string | null } | null>(null);
+  const supabase = useMemo(() => getSupabaseClient(), []);
 
   // Fetch user profile
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function DashboardPage() {
     }
 
     fetchProfile();
-  }, [user?.id]);
+  }, [supabase, user?.id]);
 
   const displayName = profile?.full_name || user?.email || "";
 
@@ -103,7 +104,7 @@ export default function DashboardPage() {
       return;
     }
 
-  }, [user]);
+  }, [supabase, user]);
 
   useEffect(() => {
     if (!authLoading && !user) {

@@ -1,4 +1,4 @@
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import type { Album, AlbumImage } from "@/types";
 
 export type AlbumPreview = {
@@ -123,6 +123,7 @@ const mapAlbumDetails = (row: unknown): AlbumDetailsWithCreator | null => {
 export const albumService = {
   // Public albums with creator profile (landing)
   async getPublicAlbumsWithCreators(): Promise<AlbumPreview[]> {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, album_images(storage_path, display_order), profiles:profiles!albums_user_id_fkey(id, username, full_name)')
@@ -135,6 +136,7 @@ export const albumService = {
   },
   // Get all albums for a user
   async getUserAlbumsWithCreators(userId: string): Promise<AlbumPreview[]> {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, album_images(storage_path, display_order), profiles:profiles!albums_user_id_fkey(id, username, full_name)')
@@ -149,6 +151,7 @@ export const albumService = {
 
   // Get single album with images
   async getAlbumWithImages(albumId: string): Promise<{ album: Album; images: AlbumImage[] }> {
+    const supabase = getSupabaseClient();
     const [albumResponse, imagesResponse] = await Promise.all([
       supabase.from('albums').select('*').eq('id', albumId).single(),
       supabase.from('album_images').select('*').eq('album_id', albumId),
@@ -165,6 +168,7 @@ export const albumService = {
 
   // Get single album with images and creator profile
   async getAlbumWithImagesAndCreator(albumId: string): Promise<{ album: AlbumDetailsWithCreator; images: AlbumImageRow[] }> {
+    const supabase = getSupabaseClient();
     const { data: album, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, profiles:profiles!albums_user_id_fkey(id, username, full_name)')
@@ -191,6 +195,7 @@ export const albumService = {
 
   // Create new album
   async createAlbum(albumData: CreateAlbumInput) {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('albums')
       .insert(albumData)
@@ -203,6 +208,7 @@ export const albumService = {
 
   // Add images to album
   async addImagesToAlbum(albumId: string, images: AlbumImageRow[]) {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('album_images')
       .insert(
@@ -223,6 +229,7 @@ export const albumService = {
 
   // Update album
   async updateAlbum(albumId: string, updates: Partial<Album>) {
+    const supabase = getSupabaseClient();
     const { data, error } = await supabase
       .from('albums')
       .update(updates)
@@ -236,6 +243,7 @@ export const albumService = {
 
   // Delete album and its images
   async deleteAlbum(albumId: string) {
+    const supabase = getSupabaseClient();
     // First delete all images
     const { error: imagesError } = await supabase
       .from('album_images')
@@ -255,6 +263,7 @@ export const albumService = {
   ,
   // Delete album including storage objects
   async deleteAlbumWithStorage(albumId: string) {
+    const supabase = getSupabaseClient();
     // Fetch image paths first
     const { data: images, error: fetchErr } = await supabase
       .from('album_images')

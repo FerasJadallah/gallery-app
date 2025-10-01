@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/app/supabase/client";
+import { getSupabaseClient } from "@/app/supabase/client";
 import { albumService, type AlbumPreview } from "@/lib/albumService";
 
 import AlbumCard from "@/components/ui/AlbumCard";
@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 export default function PublicFeedPage() {
   const [albums, setAlbums] = useState<AlbumPreview[]>([]);
   const [q, setQ] = useState("");
+  const supabase = useMemo(() => getSupabaseClient(), []);
 
   useEffect(() => {
     let ignore = false;
@@ -28,7 +29,7 @@ export default function PublicFeedPage() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [supabase]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
