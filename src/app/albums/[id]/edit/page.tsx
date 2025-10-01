@@ -8,12 +8,14 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useAlert } from "@/hooks/use-alert";
 import { albumService } from "@/lib/albumService";
 import { useAuth } from "@/contexts/AuthContext";
 import ImageUpload from "@/components/ui/ImageUpload";
 import { supabase } from "@/app/supabase/client";
+import { AlbumImage } from "@/types";
 
 const LINK_CLASSES = "inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white";
 
@@ -27,28 +29,29 @@ export default function EditAlbumPage() {
   const [description, setDescription] = useState("");
   const [privacy, setPrivacy] = useState<"public" | "private">("private");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [images, setImages] = useState<{ storage_path: string; display_order: number }[]>([]);
+  const [images, setImages] = useState<AlbumImage[]>([]);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     const run = async () => {
       try {
-        const { album, images } = await albumService.getAlbumWithImages(albumId);
+        const { album, images: albumImages } = await albumService.getAlbumWithImages(albumId);
         // Auth/owner guard
         if (!user) {
           router.replace(`/login?next=/albums/${albumId}/edit`);
           return;
         }
-        if ((album as any).user_id && user.id !== (album as any).user_id) {
+        if (album.user_id && user.id !== album.user_id) {
           router.replace(`/albums/${albumId}`);
           return;
         }
         setTitle(album.title ?? "");
         setDescription(album.description ?? "");
-        setPrivacy((album.privacy as any) === "public" ? "public" : "private");
-        setImages(images as any);
-      } catch (e: any) {
-        showAlert("error", e?.message ?? "Failed to load album");
+        setPrivacy(album.privacy === "public" ? "public" : "private");
+        setImages(albumImages ?? []);
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : "Failed to load album";
+        showAlert("error", message);
       }
     };
     if (!loading && albumId) void run();
@@ -69,11 +72,12 @@ export default function EditAlbumPage() {
         title: title.trim(),
         description: description.trim() || null,
         privacy,
-      } as any);
+      });
       showAlert("success", "Album updated. Redirecting to the detail page...");
       setTimeout(() => router.push(`/albums/${albumId}`), 900);
-    } catch (e: any) {
-      showAlert("error", e?.message ?? "Failed to update album");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to update album";
+      showAlert("error", message);
     } finally {
       setIsSubmitting(false);
     }
@@ -99,10 +103,11 @@ export default function EditAlbumPage() {
         uploaded.map((u, idx) => ({ storage_path: u.path, display_order: start + idx }))
       );
       const { images: refreshed } = await albumService.getAlbumWithImages(albumId);
-      setImages(refreshed as any);
+      setImages(refreshed ?? []);
       showAlert("success", "Images added");
-    } catch (e: any) {
-      showAlert("error", e?.message ?? "Failed to add images");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to add images";
+      showAlert("error", message);
     } finally {
       setUploading(false);
     }
@@ -119,8 +124,9 @@ export default function EditAlbumPage() {
         .eq("storage_path", storagePath);
       if (dbErr) throw dbErr;
       setImages((prev) => prev.filter((i) => i.storage_path !== storagePath));
-    } catch (e: any) {
-      showAlert("error", e?.message ?? "Failed to delete image");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Failed to delete image";
+      showAlert("error", message);
     }
   };
 
@@ -160,10 +166,11 @@ export default function EditAlbumPage() {
 
               <div className="space-y-1">
                 <Label htmlFor="description">Description</Label>
-                <Input
+                <Textarea
                   id="description"
                   value={description}
                   onChange={(event) => setDescription(event.target.value)}
+                  rows={4}
                 />
               </div>
 
