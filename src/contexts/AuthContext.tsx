@@ -1,7 +1,7 @@
 "use client";
 
 import { getSupabaseClient } from "@/app/supabase/client";
-import type { AuthError, Session, User } from "@supabase/supabase-js";
+import type { Session, SupabaseClient, User } from "@supabase/supabase-js";
 import {
   ReactNode,
   createContext,
@@ -12,18 +12,19 @@ import {
   useState,
 } from "react";
 
+type SignInWithPasswordFn = SupabaseClient["auth"]["signInWithPassword"];
+type SignOutFn = SupabaseClient["auth"]["signOut"];
+type GetSessionFn = SupabaseClient["auth"]["getSession"];
+
 type AuthContextValue = {
   user: User | null;
   session: Session | null;
   loading: boolean;
   signInWithPassword: (
-    credentials: Parameters<typeof supabase.auth.signInWithPassword>[0]
-  ) => ReturnType<typeof supabase.auth.signInWithPassword>;
-  signOut: () => ReturnType<typeof supabase.auth.signOut>;
-  refreshSession: () => Promise<{
-    data: { session: Session | null };
-    error: AuthError | null;
-  }>;
+    credentials: Parameters<SignInWithPasswordFn>[0]
+  ) => ReturnType<SignInWithPasswordFn>;
+  signOut: () => ReturnType<SignOutFn>;
+  refreshSession: () => ReturnType<GetSessionFn>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -70,36 +71,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applySession, supabase]);
 
-  const signInWithPassword = useCallback<
-    AuthContextValue["signInWithPassword"]
-  >(async (credentials) => {
-    const result = await supabase.auth.signInWithPassword(credentials);
-    if (result.error) {
-      console.error("Supabase sign-in failed", result.error);
-    } else {
+  const signInWithPassword = useCallback<AuthContextValue["signInWithPassword"]>(
+    async (credentials) => {
+      const result = await supabase.auth.signInWithPassword(credentials);
+      if (result.error) {
+        console.error("Supabase sign-in failed", result.error);
+      } else {
+        applySession(result.data.session);
+      }
+      return result;
+    },
+    [applySession, supabase]
+  );
+
+  const signOut = useCallback<AuthContextValue["signOut"]>(
+    async () => {
+      const result = await supabase.auth.signOut();
+      if (result.error) {
+        console.error("Supabase sign-out failed", result.error);
+      } else {
+        applySession(null);
+      }
+      return result;
+    },
+    [applySession, supabase]
+  );
+
+  const refreshSession = useCallback<AuthContextValue["refreshSession"]>(
+    async () => {
+      const result = await supabase.auth.getSession();
+      if (result.error) {
+        console.error("Failed to refresh Supabase session", result.error);
+      }
       applySession(result.data.session);
-    }
-    return result;
-  }, [applySession, supabase]);
-
-  const signOut = useCallback<AuthContextValue["signOut"]>(async () => {
-    const result = await supabase.auth.signOut();
-    if (result.error) {
-      console.error("Supabase sign-out failed", result.error);
-    } else {
-      applySession(null);
-    }
-    return result;
-  }, [applySession, supabase]);
-
-  const refreshSession = useCallback<AuthContextValue["refreshSession"]>(async () => {
-    const result = await supabase.auth.getSession();
-    if (result.error) {
-      console.error("Failed to refresh Supabase session", result.error);
-    }
-    applySession(result.data.session);
-    return result;
-  }, [applySession]);
+      return result;
+    },
+    [applySession, supabase]
+  );
 
   const value = useMemo<AuthContextValue>(
     () => ({

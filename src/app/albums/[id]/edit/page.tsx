@@ -57,7 +57,7 @@ export default function EditAlbumPage() {
       }
     };
     if (!loading && albumId) void run();
-  }, [albumId, loading, router, showAlert, user]);
+  }, [albumId, loading, router, showAlert, supabase, user]);
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
