@@ -1,28 +1,59 @@
-import { supabase } from '@/app/supabase/client';
-import { Album, Photo } from '@/types';
+import { supabase } from "@/app/supabase/client";
+import type { Album, AlbumImage } from "@/types";
 
-interface AlbumWithImages extends Album {
-  album_images: Photo[];
+export type AlbumPreview = {
+  id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+  privacy: Album["privacy"];
+  user_id: string;
+  album_images: Array<Pick<AlbumImage, "storage_path" | "display_order">> | null;
   profiles?: {
     id: string;
     username: string | null;
     full_name: string | null;
   };
-}
+};
+
+export type AlbumDetailsWithCreator = {
+  id: string;
+  title: string;
+  description: string | null;
+  created_at: string;
+  privacy: Album["privacy"];
+  user_id: string;
+  profiles?: {
+    id: string;
+    username: string | null;
+    full_name: string | null;
+  };
+};
+
+export type AlbumImageRow = Pick<AlbumImage, "storage_path" | "display_order">;
+
+type CreateAlbumInput = {
+  user_id: string;
+  title: string;
+  slug: string;
+  description: string | null;
+  privacy: Album["privacy"];
+  cover_url: string | null;
+};
 
 export const albumService = {
   // Public albums with creator profile (landing)
-  async getPublicAlbumsWithCreators() {
+  async getPublicAlbumsWithCreators(): Promise<AlbumPreview[]> {
     const { data, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, album_images(storage_path, display_order), profiles:profiles!albums_user_id_fkey(id, username, full_name)')
       .eq('privacy', 'public')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return data as any[];
+    return (data ?? []) as AlbumPreview[];
   },
   // Get all albums for a user
-  async getUserAlbumsWithCreators(userId: string) {
+  async getUserAlbumsWithCreators(userId: string): Promise<AlbumPreview[]> {
     const { data, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, album_images(storage_path, display_order), profiles:profiles!albums_user_id_fkey(id, username, full_name)')
@@ -30,11 +61,11 @@ export const albumService = {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
-    return data as any[];
+    return (data ?? []) as AlbumPreview[];
   },
 
   // Get single album with images
-  async getAlbumWithImages(albumId: string) {
+  async getAlbumWithImages(albumId: string): Promise<{ album: Album; images: AlbumImage[] }> {
     const [albumResponse, imagesResponse] = await Promise.all([
       supabase.from('albums').select('*').eq('id', albumId).single(),
       supabase.from('album_images').select('*').eq('album_id', albumId),
@@ -45,12 +76,12 @@ export const albumService = {
 
     return {
       album: albumResponse.data as Album,
-      images: imagesResponse.data as Photo[]
+      images: (imagesResponse.data ?? []) as AlbumImage[]
     };
   },
 
   // Get single album with images and creator profile
-  async getAlbumWithImagesAndCreator(albumId: string) {
+  async getAlbumWithImagesAndCreator(albumId: string): Promise<{ album: AlbumDetailsWithCreator; images: AlbumImageRow[] }> {
     const { data: album, error } = await supabase
       .from('albums')
       .select('id, title, description, created_at, privacy, user_id, profiles:profiles!albums_user_id_fkey(id, username, full_name)')
@@ -64,11 +95,14 @@ export const albumService = {
       .eq('album_id', albumId);
     if (imagesError) throw imagesError;
 
-    return { album, images } as any;
+    return {
+      album: album as AlbumDetailsWithCreator,
+      images: (images ?? []) as AlbumImageRow[],
+    };
   },
 
   // Create new album
-  async createAlbum(albumData: Omit<Album, 'id' | 'created_at' | 'updated_at' | 'profiles' | 'cover_url'>) {
+  async createAlbum(albumData: CreateAlbumInput) {
     const { data, error } = await supabase
       .from('albums')
       .insert(albumData)
@@ -80,14 +114,14 @@ export const albumService = {
   },
 
   // Add images to album
-  async addImagesToAlbum(albumId: string, images: { storage_path: string; display_order: number }[]) {
+  async addImagesToAlbum(albumId: string, images: AlbumImageRow[]) {
     const { data, error } = await supabase
       .from('album_images')
       .insert(
         images.map((image, index) => ({
           album_id: albumId,
           storage_path: image.storage_path,
-          display_order: index // Use index as display_order
+          display_order: image.display_order ?? index,
         }))
       )
       .select();
@@ -96,7 +130,7 @@ export const albumService = {
       console.error('Error adding images to album:', error);
       throw new Error(`Failed to add images to album: ${error.message}`);
     }
-    return data;
+    return (data ?? []) as AlbumImage[];
   },
 
   // Update album
@@ -140,7 +174,7 @@ export const albumService = {
       .eq('album_id', albumId);
     if (fetchErr) throw fetchErr;
 
-    const paths = (images ?? []).map((i: any) => i.storage_path).filter(Boolean);
+    const paths = (images ?? []).map((i) => i.storage_path).filter((path): path is string => Boolean(path));
     if (paths.length > 0) {
       // Remove from storage bucket
       const { error: removeErr } = await supabase.storage.from('album-images').remove(paths);

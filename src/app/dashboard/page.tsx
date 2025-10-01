@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { albumService } from "@/lib/albumService";
+import { albumService, type AlbumPreview } from "@/lib/albumService";
 import AlbumCard from "@/components/ui/AlbumCard";
 import { supabase } from "@/app/supabase/client";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -14,12 +14,6 @@ import { useAuth } from "@/contexts/AuthContext";
 
 const PRIMARY_BUTTON_CLASSES =
   "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800";
-
-const BADGE_BASE = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold";
-const BADGE_VARIANTS = {
-  public: "bg-emerald-100 text-emerald-700",
-  private: "bg-slate-200 text-slate-700",
-} as const;
 
 type Album = {
   id: string;
@@ -76,9 +70,9 @@ export default function DashboardPage() {
       // Use service with creator profiles
       const data = await albumService.getUserAlbumsWithCreators(user.id);
 
-      const parsed: Album[] = (data ?? []).map((row: any) => {
-        const images = Array.isArray(row.album_images) ? row.album_images : [];
-        const preferred = images.find((i: any) => i.display_order === 0) ?? images[0];
+      const parsed: Album[] = data.map((row: AlbumPreview) => {
+        const images = row.album_images ?? [];
+        const preferred = images.find((image) => image.display_order === 0) ?? images[0];
         const coverPath = preferred?.storage_path;
         const coverUrl = coverPath
           ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl
@@ -90,19 +84,22 @@ export default function DashboardPage() {
           createdAt: row.created_at,
           coverUrl,
           privacy: row.privacy === "public" ? "public" : "private",
-          creator: row.profiles ? {
-            username: row.profiles.username,
-            full_name: row.profiles.full_name
-          } : null,
+          creator: row.profiles
+            ? {
+                username: row.profiles.username,
+                full_name: row.profiles.full_name,
+              }
+            : null,
         };
       });
 
       setAlbums(parsed);
       setFetchState("success");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to load albums", error);
       setFetchState("error");
-      setErrorMessage(error?.message || "We couldn't load your albums. Please try again.");
+      const message = error instanceof Error ? error.message : "We couldn't load your albums. Please try again.";
+      setErrorMessage(message);
       return;
     }
 

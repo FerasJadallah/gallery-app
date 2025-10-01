@@ -30,11 +30,13 @@ export default function VerifyEmailPage() {
 
         <AlertBanner
           type="info"
-          message={`Click the link in the email to verify your account. If you don't see it, check your spam folder. ${timeLeft > 0 ? `You can request a new verification email in ${timeLeft} seconds.` : ''}`}
+          message={`Click the link in the email to verify your account. If you do not see it, check your spam folder. ${
+            timeLeft > 0 ? `You can request a new verification email in ${timeLeft} seconds.` : ""
+          }`}
         />
 
         <div className="text-sm text-slate-600">
-          <p>After verifying your email, you'll be asked to set up your profile.</p>
+          <p>After verifying your email, you will be asked to set up your profile.</p>
         </div>
       </div>
     </AuthShell>

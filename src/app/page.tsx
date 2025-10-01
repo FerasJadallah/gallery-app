@@ -1,33 +1,39 @@
 "use client";
 
-import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/app/supabase/client";
-import { albumService } from "@/lib/albumService";
+import { albumService, type AlbumPreview } from "@/lib/albumService";
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import AlbumCard from "@/components/ui/AlbumCard";
 import { Input } from "@/components/ui/input";
 
-const BUTTON_CLASSES =
-  "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800";
-
 export default function PublicFeedPage() {
-  const [albums, setAlbums] = useState<any[] | null>(null);
+  const [albums, setAlbums] = useState<AlbumPreview[]>([]);
   const [q, setQ] = useState("");
 
-  useState(() => {
-    albumService
-      .getPublicAlbumsWithCreators()
-      .then((data) => setAlbums(data))
-      .catch((e) => console.error("Error loading albums:", e?.message));
-  });
+  useEffect(() => {
+    let ignore = false;
+    const load = async () => {
+      try {
+        const data = await albumService.getPublicAlbumsWithCreators();
+        if (ignore) return;
+        setAlbums(data);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to load albums";
+        console.error("Error loading albums:", message);
+      }
+    };
+
+    void load();
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
-    if (!albums) return [];
     const term = q.trim().toLowerCase();
     if (!term) return albums;
-    return albums.filter((a) => (a.title || "").toLowerCase().includes(term));
+    return albums.filter((album) => (album.title || "").toLowerCase().includes(term));
   }, [albums, q]);
 
   return (
@@ -53,8 +59,8 @@ export default function PublicFeedPage() {
         <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((album) => {
             // Prefer image with display_order === 0, else fallback to first
-            const images = Array.isArray(album.album_images) ? album.album_images : [];
-            const preferred = images.find((img: any) => img.display_order === 0) ?? images[0];
+            const images = album.album_images ?? [];
+            const preferred = images.find((img) => img.display_order === 0) ?? images[0];
             const coverPath = preferred?.storage_path;
             const publicUrl = coverPath
               ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl

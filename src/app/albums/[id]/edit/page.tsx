@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 
+import Image from "next/image";
 import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -223,11 +224,22 @@ export default function EditAlbumPage() {
               {images.map((img) => {
                 const url = supabase.storage.from("album-images").getPublicUrl(img.storage_path).data.publicUrl;
                 return (
-                  <div key={img.storage_path} className="relative">
-                    <img src={url ?? ""} alt="Album image" className="aspect-square w-full rounded-lg object-cover" />
+                  <div key={img.storage_path} className="relative aspect-square">
+                    {url ? (
+                      <Image
+                        src={url}
+                        alt="Album image"
+                        fill
+                        className="rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
+                        Missing image
+                      </div>
+                    )}
                     <button
                       type="button"
-                      className="absolute right-2 top-2 rounded bg-white/80 px-2 py-1 text-xs text-red-700 shadow hover:bg白"
+                      className="absolute right-2 top-2 rounded bg-white/80 px-2 py-1 text-xs text-red-700 shadow hover:bg-white"
                       onClick={() => void handleDeleteImage(img.storage_path)}
                     >
                       Delete

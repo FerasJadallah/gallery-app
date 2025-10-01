@@ -1,7 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { ChangeEvent, FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { z } from "zod";
 import slugify from "slugify";
 
@@ -62,29 +63,6 @@ export default function CreateAlbumPage() {
 
   const isOverFileLimit = useMemo(() => files.length > MAX_FILES, [files.length]);
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    if (!event.target.files?.length) return;
-
-    const selected = Array.from(event.target.files);
-    const nextFiles = [...files, ...selected].slice(0, MAX_FILES);
-
-    if (files.length + selected.length > MAX_FILES) {
-      showAlert("error", `You can only upload up to ${MAX_FILES} images at a time.`);
-      return;
-    }
-
-    setFiles(nextFiles);
-    setErrors((prev) => ({ ...prev, files: undefined }));
-
-    // Set cover preview for the first image
-    if (!coverPreview && nextFiles[0]) {
-      const previewUrl = URL.createObjectURL(nextFiles[0]);
-      setCoverPreview(previewUrl);
-    }
-
-    event.target.value = "";
-  };
-
   const removeFile = (index: number) => {
     setFiles((prev) => {
       const updated = prev.filter((_, idx) => idx !== index);
@@ -130,7 +108,7 @@ export default function CreateAlbumPage() {
         description: parsed.description || null,
         privacy: parsed.privacy,
         cover_url: null,
-      } as any);
+      });
 
       const albumId = created.id;
       const uploadedPhotos: { url: string; path: string }[] = [];
@@ -167,9 +145,9 @@ export default function CreateAlbumPage() {
         try {
           await albumService.addImagesToAlbum(
             albumId,
-            uploadedPhotos.map((photo) => ({
+            uploadedPhotos.map((photo, index) => ({
               storage_path: photo.path,
-              display_order: 0,
+              display_order: index,
             }))
           );
         } catch (imageError) {
@@ -322,10 +300,12 @@ export default function CreateAlbumPage() {
                   <div className="space-y-2">
                     <Label>Cover Preview</Label>
                     <div className="relative aspect-video w-full overflow-hidden rounded-lg border border-slate-200">
-                      <img
+                      <Image
                         src={coverPreview}
                         alt="Album cover preview"
-                        className="h-full w-full object-cover"
+                        fill
+                        className="object-cover"
+                        unoptimized
                       />
                     </div>
                   </div>

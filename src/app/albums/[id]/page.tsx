@@ -21,7 +21,7 @@ type State = LoadedAlbumState | { kind: "idle" } | { kind: "loading" } | { kind:
 export default function AlbumDetailPage() {
   const params = useParams();
   const albumId = params?.id as string;
-  const { user, loading } = useAuth();
+  const { user } = useAuth();
 
   const [state, setState] = useState<State>({ kind: "idle" });
 
@@ -37,9 +37,10 @@ export default function AlbumDetailPage() {
         }
         if (ignore) return;
         setState({ kind: "loaded", album, images });
-      } catch (e: any) {
+      } catch (error: unknown) {
         if (ignore) return;
-        setState({ kind: "error", message: e?.message ?? "Failed to load album" });
+        const message = error instanceof Error ? error.message : "Failed to load album";
+        setState({ kind: "error", message });
       }
     };
     run();
