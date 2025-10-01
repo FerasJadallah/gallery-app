@@ -1,11 +1,20 @@
 "use client";
 
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+
 import { AuthShell } from "@/components/auth/AuthShell";
 import { AlertBanner } from "@/components/ui/alert-banner";
 
 export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<AuthShell title="Verify your email"><p className="text-sm text-slate-600">Loading…</p></AuthShell>}>
+      <VerifyEmailContent />
+    </Suspense>
+  );
+}
+
+function VerifyEmailContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get("email");
   const [timeLeft, setTimeLeft] = useState(60);
