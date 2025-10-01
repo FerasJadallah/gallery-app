@@ -41,6 +41,85 @@ type CreateAlbumInput = {
   cover_url: string | null;
 };
 
+const mapAlbumImages = (value: unknown): AlbumImageRow[] => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((image) => {
+      if (!image || typeof image !== "object") return null;
+      const storagePath = (image as { storage_path?: unknown }).storage_path;
+      if (typeof storagePath !== "string" || storagePath.length === 0) return null;
+      const displayOrderValue = (image as { display_order?: unknown }).display_order;
+      const displayOrder = typeof displayOrderValue === "number" ? displayOrderValue : 0;
+      return { storage_path: storagePath, display_order: displayOrder } satisfies AlbumImageRow;
+    })
+    .filter((item): item is AlbumImageRow => item !== null);
+};
+
+const mapProfile = (value: unknown): AlbumPreview["profiles"] => {
+  if (!value || typeof value !== "object") return undefined;
+  const source = Array.isArray(value) ? value[0] : value;
+  if (!source || typeof source !== "object") return undefined;
+  const idRaw = (source as { id?: unknown }).id;
+  // id is optional for display, but keep undefined if missing
+  const id = typeof idRaw === "string" ? idRaw : undefined;
+  const username = (source as { username?: unknown }).username;
+  const fullName = (source as { full_name?: unknown }).full_name;
+  return {
+    id: id ?? "",
+    username: typeof username === "string" ? username : null,
+    full_name: typeof fullName === "string" ? fullName : null,
+  };
+};
+
+const mapAlbumPreview = (row: unknown): AlbumPreview | null => {
+  if (!row || typeof row !== "object") return null;
+  const source = row as Record<string, unknown>;
+  const id = source.id;
+  const createdAt = source.created_at;
+  const userId = source.user_id;
+  if (typeof id !== "string" || typeof createdAt !== "string" || typeof userId !== "string") {
+    return null;
+  }
+
+  const privacyRaw = source.privacy;
+  const privacy: Album["privacy"] = privacyRaw === "public" ? "public" : "private";
+
+  return {
+    id,
+    title: typeof source.title === "string" ? source.title : "",
+    description: typeof source.description === "string" ? source.description : null,
+    created_at: createdAt,
+    privacy,
+    user_id: userId,
+    album_images: mapAlbumImages(source.album_images),
+    profiles: mapProfile(source.profiles),
+  };
+};
+
+const mapAlbumDetails = (row: unknown): AlbumDetailsWithCreator | null => {
+  if (!row || typeof row !== "object") return null;
+  const source = row as Record<string, unknown>;
+  const id = source.id;
+  const createdAt = source.created_at;
+  const userId = source.user_id;
+  if (typeof id !== "string" || typeof createdAt !== "string" || typeof userId !== "string") {
+    return null;
+  }
+
+  const privacyRaw = source.privacy;
+  const privacy: Album["privacy"] = privacyRaw === "public" ? "public" : "private";
+
+  return {
+    id,
+    title: typeof source.title === "string" ? source.title : "",
+    description: typeof source.description === "string" ? source.description : null,
+    created_at: createdAt,
+    privacy,
+    user_id: userId,
+    profiles: mapProfile(source.profiles),
+  };
+};
+
 export const albumService = {
   // Public albums with creator profile (landing)
   async getPublicAlbumsWithCreators(): Promise<AlbumPreview[]> {
@@ -50,7 +129,9 @@ export const albumService = {
       .eq('privacy', 'public')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data ?? []) as AlbumPreview[];
+    return (data ?? [])
+      .map(mapAlbumPreview)
+      .filter((album): album is AlbumPreview => album !== null);
   },
   // Get all albums for a user
   async getUserAlbumsWithCreators(userId: string): Promise<AlbumPreview[]> {
@@ -61,7 +142,9 @@ export const albumService = {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
-    return (data ?? []) as AlbumPreview[];
+    return (data ?? [])
+      .map(mapAlbumPreview)
+      .filter((album): album is AlbumPreview => album !== null);
   },
 
   // Get single album with images
@@ -95,9 +178,14 @@ export const albumService = {
       .eq('album_id', albumId);
     if (imagesError) throw imagesError;
 
+    const mappedAlbum = mapAlbumDetails(album);
+    if (!mappedAlbum) {
+      throw new Error("Failed to load album metadata");
+    }
+
     return {
-      album: album as AlbumDetailsWithCreator,
-      images: (images ?? []) as AlbumImageRow[],
+      album: mappedAlbum,
+      images: mapAlbumImages(images ?? []),
     };
   },
 
