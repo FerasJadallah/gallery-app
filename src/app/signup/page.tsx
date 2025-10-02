@@ -13,6 +13,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAlert } from "@/hooks/use-alert";
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL;
+
 const signupSchema = z
   .object({
     email: z.string().email("Please enter a valid email address."),
@@ -84,11 +86,13 @@ export default function SignupPage() {
     try {
       // Proceed with signup
       const supabase = getSupabaseClient();
+      const redirectOrigin = APP_URL ?? window.location.origin;
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/setup-profile`,
+          emailRedirectTo: `${redirectOrigin}/setup-profile`,
         }
       });
 
