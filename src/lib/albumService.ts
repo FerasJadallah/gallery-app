@@ -60,20 +60,20 @@ type CreateAlbumInput = {
 
 const mapAlbumImages = (value: unknown): AlbumImageRow[] => {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((image) => {
-      if (!image || typeof image !== "object") return null;
-      const storagePath = (image as { storage_path?: unknown }).storage_path;
-      if (typeof storagePath !== "string" || storagePath.length === 0) return null;
-      const displayOrderValue = (image as { display_order?: unknown }).display_order;
-      const displayOrder = typeof displayOrderValue === "number" ? displayOrderValue : 0;
-      return {
-        storage_path: storagePath,
-        display_order: displayOrder,
-        url: null,
-      } satisfies AlbumImageRow;
-    })
-    .filter((item): item is AlbumImageRow => item !== null);
+  const rows: AlbumImageRow[] = [];
+  for (const image of value) {
+    if (!image || typeof image !== "object") continue;
+    const storagePath = (image as { storage_path?: unknown }).storage_path;
+    if (typeof storagePath !== "string" || storagePath.length === 0) continue;
+    const displayOrderValue = (image as { display_order?: unknown }).display_order;
+    const displayOrder = typeof displayOrderValue === "number" ? displayOrderValue : 0;
+    rows.push({
+      storage_path: storagePath,
+      display_order: displayOrder,
+      url: null,
+    });
+  }
+  return rows;
 };
 
 const mapProfile = (value: unknown): AlbumPreview["profiles"] => {
