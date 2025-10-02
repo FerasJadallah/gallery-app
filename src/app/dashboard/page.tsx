@@ -11,6 +11,7 @@ import { AlertBanner } from "@/components/ui/alert-banner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
+import { useAlert } from "@/hooks/use-alert";
 
 const PRIMARY_BUTTON_CLASSES =
   "inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800";
@@ -35,6 +36,7 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const [profile, setProfile] = useState<{ full_name: string | null } | null>(null);
   const supabase = useMemo(() => getSupabaseClient(), []);
+  const { alert, showAlert, clearAlert } = useAlert();
 
   // Fetch user profile
   useEffect(() => {
@@ -59,13 +61,13 @@ export default function DashboardPage() {
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>("idle");
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const loadAlbums = useCallback(async () => {
     if (!user) return;
 
     setFetchState("loading");
-    setErrorMessage("");
+    clearAlert();
 
     try {
       // Use service with creator profiles
@@ -100,11 +102,11 @@ export default function DashboardPage() {
       console.error("Failed to load albums", error);
       setFetchState("error");
       const message = error instanceof Error ? error.message : "We couldn't load your albums. Please try again.";
-      setErrorMessage(message);
+      showAlert("error", message);
       return;
     }
 
-  }, [supabase, user]);
+  }, [clearAlert, showAlert, supabase, user]);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -121,6 +123,35 @@ export default function DashboardPage() {
   const handleRefresh = () => {
     void loadAlbums();
   };
+
+  const handleDeleteAlbum = useCallback(
+    async (albumId: string) => {
+      if (!user) {
+        showAlert("error", "You must be signed in to delete an album.");
+        return;
+      }
+
+      const confirmed = window.confirm(
+        "Are you sure you want to delete this album? This action cannot be undone."
+      );
+      if (!confirmed) return;
+
+      setDeletingId(albumId);
+
+      try {
+        await albumService.deleteAlbumWithStorage(albumId);
+        setAlbums((prev) => prev.filter((album) => album.id !== albumId));
+        showAlert("success", "Album deleted.");
+      } catch (error: unknown) {
+        console.error("Failed to delete album", error);
+        const message = error instanceof Error ? error.message : "Failed to delete album. Please try again.";
+        showAlert("error", message);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [showAlert, user]
+  );
 
   const isLoading = fetchState === "loading" || (authLoading && fetchState === "idle");
   const showEmptyState = fetchState === "success" && albums.length === 0;
@@ -146,7 +177,7 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {errorMessage && <AlertBanner type="error" message={errorMessage} />}
+        {alert && <AlertBanner type={alert.type} message={alert.message} />}
 
         {isLoading && (
           <Card>
@@ -186,8 +217,21 @@ export default function DashboardPage() {
                   creator={album.creator}
                 />
                 <div className="flex gap-3">
-                  <Button asChild variant="secondary">
+                  <Button
+                    asChild
+                    variant="secondary"
+                    className={deletingId === album.id ? "pointer-events-none opacity-60" : undefined}
+                  >
                     <Link href={`/albums/${album.id}/edit`}>Edit</Link>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="border border-transparent text-red-600 hover:bg-red-50"
+                    onClick={() => void handleDeleteAlbum(album.id)}
+                    disabled={deletingId === album.id}
+                  >
+                    {deletingId === album.id ? "Deleting..." : "Delete"}
                   </Button>
                 </div>
               </div>

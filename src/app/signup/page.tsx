@@ -89,7 +89,7 @@ export default function SignupPage() {
     try {
       // Proceed with signup
       const supabase = getSupabaseClient();
-      const redirectOrigin = "https://gallery-app-sigma-livid.vercel.app";
+      const redirectOrigin = APP_URL ?? window.location.origin;
 
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,

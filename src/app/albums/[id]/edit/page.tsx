@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import Image from "next/image";
 import { AlertBanner } from "@/components/ui/alert-banner";
@@ -17,8 +17,20 @@ import { useAuth } from "@/contexts/AuthContext";
 import ImageUpload from "@/components/ui/ImageUpload";
 import { getSupabaseClient } from "@/app/supabase/client";
 import { AlbumImage } from "@/types";
+import { cn } from "@/lib/utils";
 
 const LINK_CLASSES = "inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white";
+
+type PendingUpload = {
+  id: string;
+  file: File;
+  preview: string;
+};
+
+const createUid = () =>
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 export default function EditAlbumPage() {
   const params = useParams();
@@ -32,7 +44,22 @@ export default function EditAlbumPage() {
   const [privacy, setPrivacy] = useState<"public" | "private">("private");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [images, setImages] = useState<AlbumImage[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [imagesToRemove, setImagesToRemove] = useState<Set<string>>(new Set());
+  const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
+  const pendingUploadsRef = useRef<PendingUpload[]>([]);
+  const [isDeletingAlbum, setIsDeletingAlbum] = useState(false);
+
+  useEffect(() => {
+    pendingUploadsRef.current = pendingUploads;
+  }, [pendingUploads]);
+
+  useEffect(() => {
+    return () => {
+      pendingUploadsRef.current.forEach((upload) => {
+        URL.revokeObjectURL(upload.preview);
+      });
+    };
+  }, []);
 
   useEffect(() => {
     const run = async () => {
@@ -51,6 +78,11 @@ export default function EditAlbumPage() {
         setDescription(album.description ?? "");
         setPrivacy(album.privacy === "public" ? "public" : "private");
         setImages(albumImages ?? []);
+        setImagesToRemove(new Set());
+        setPendingUploads((prev) => {
+          prev.forEach((upload) => URL.revokeObjectURL(upload.preview));
+          return [];
+        });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : "Failed to load album";
         showAlert("error", message);
@@ -68,6 +100,14 @@ export default function EditAlbumPage() {
       return;
     }
 
+    if (!user) {
+      showAlert("error", "You must be signed in to update this album.");
+      return;
+    }
+
+    const removals = Array.from(imagesToRemove);
+    const pendingUploadsSnapshot = [...pendingUploads];
+
     try {
       setIsSubmitting(true);
       await albumService.updateAlbum(albumId, {
@@ -75,6 +115,51 @@ export default function EditAlbumPage() {
         description: description.trim() || null,
         privacy,
       });
+
+      if (removals.length > 0) {
+        const { error: storageError } = await supabase.storage.from("album-images").remove(removals);
+        if (storageError) throw storageError;
+
+        const { error: dbError } = await supabase
+          .from("album_images")
+          .delete()
+          .eq("album_id", albumId)
+          .in("storage_path", removals);
+        if (dbError) throw dbError;
+      }
+
+      if (pendingUploadsSnapshot.length > 0) {
+        const remainingImages = images.filter((img) => !imagesToRemove.has(img.storage_path));
+        const highestOrder =
+          remainingImages.length > 0
+            ? Math.max(...remainingImages.map((img) => img.display_order ?? 0))
+            : -1;
+        let nextOrder = highestOrder + 1;
+
+        const uploadsForDb: { storage_path: string; display_order: number }[] = [];
+
+        for (const pending of pendingUploadsSnapshot) {
+          const file = pending.file;
+          const extension = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
+          const path = `${user.id}/${albumId}/${createUid()}.${extension}`;
+          const { error: uploadError } = await supabase.storage
+            .from("album-images")
+            .upload(path, file, {
+              cacheControl: "3600",
+              upsert: false,
+              contentType: file.type,
+            });
+          if (uploadError) throw uploadError;
+          uploadsForDb.push({ storage_path: path, display_order: nextOrder });
+          nextOrder += 1;
+        }
+
+        await albumService.addImagesToAlbum(albumId, uploadsForDb);
+      }
+
+      pendingUploadsSnapshot.forEach((upload) => URL.revokeObjectURL(upload.preview));
+      setPendingUploads([]);
+      setImagesToRemove(new Set());
       showAlert("success", "Album updated. Redirecting to the detail page...");
       setTimeout(() => router.push(`/albums/${albumId}`), 900);
     } catch (error: unknown) {
@@ -85,50 +170,59 @@ export default function EditAlbumPage() {
     }
   };
 
-  const handleAddImages = async (files: File[]) => {
-    if (!user) return;
-    try {
-      setUploading(true);
-      const uploaded: { path: string }[] = [];
-      for (const file of files) {
-        const ext = file.name.split(".").pop();
-        const path = `${user.id}/${albumId}/${crypto.randomUUID()}.${ext}`;
-        const { error: uploadError } = await supabase.storage
-          .from("album-images")
-          .upload(path, file, { cacheControl: "3600", upsert: false, contentType: file.type });
-        if (uploadError) throw uploadError;
-        uploaded.push({ path });
-      }
-      const start = images.length > 0 ? Math.max(...images.map((i) => i.display_order)) + 1 : 0;
-      await albumService.addImagesToAlbum(
-        albumId,
-        uploaded.map((u, idx) => ({ storage_path: u.path, display_order: start + idx }))
-      );
-      const { images: refreshed } = await albumService.getAlbumWithImages(albumId);
-      setImages(refreshed ?? []);
-      showAlert("success", "Images added");
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to add images";
-      showAlert("error", message);
-    } finally {
-      setUploading(false);
-    }
+  const handleAddImages = (files: File[]) => {
+    const newUploads = files.map((file) => ({
+      id: createUid(),
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setPendingUploads((prev) => [...prev, ...newUploads]);
   };
 
-  const handleDeleteImage = async (storagePath: string) => {
+  const handleToggleExistingImage = (storagePath: string) => {
+    setImagesToRemove((prev) => {
+      const next = new Set(prev);
+      if (next.has(storagePath)) {
+        next.delete(storagePath);
+      } else {
+        next.add(storagePath);
+      }
+      return next;
+    });
+  };
+
+  const handleRemovePendingUpload = (id: string) => {
+    setPendingUploads((prev) => {
+      const target = prev.find((upload) => upload.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.preview);
+      }
+      return prev.filter((upload) => upload.id !== id);
+    });
+  };
+
+  const handleDeleteAlbum = async () => {
+    if (!user) {
+      showAlert("error", "You must be signed in to delete this album.");
+      return;
+    }
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this album? This action cannot be undone."
+    );
+    if (!confirmed) return;
+
     try {
-      const { error: removeErr } = await supabase.storage.from("album-images").remove([storagePath]);
-      if (removeErr) throw removeErr;
-      const { error: dbErr } = await supabase
-        .from("album_images")
-        .delete()
-        .eq("album_id", albumId)
-        .eq("storage_path", storagePath);
-      if (dbErr) throw dbErr;
-      setImages((prev) => prev.filter((i) => i.storage_path !== storagePath));
+      setIsDeletingAlbum(true);
+      await albumService.deleteAlbumWithStorage(albumId);
+      pendingUploadsRef.current.forEach((upload) => URL.revokeObjectURL(upload.preview));
+      setPendingUploads([]);
+      setImagesToRemove(new Set());
+      showAlert("success", "Album deleted. Redirecting to your dashboard...");
+      setTimeout(() => router.push("/dashboard"), 900);
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Failed to delete image";
+      const message = error instanceof Error ? error.message : "Failed to delete album";
       showAlert("error", message);
+      setIsDeletingAlbum(false);
     }
   };
 
@@ -203,12 +297,21 @@ export default function EditAlbumPage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting || isDeletingAlbum}>
                   {isSubmitting ? "Saving..." : "Save changes"}
                 </Button>
                 <Link href={`/albums/${albumId}`} className={LINK_CLASSES}>
                   Discard
                 </Link>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="border border-transparent text-red-600 hover:bg-red-50"
+                  onClick={handleDeleteAlbum}
+                  disabled={isSubmitting || isDeletingAlbum}
+                >
+                  {isDeletingAlbum ? "Deleting..." : "Delete album"}
+                </Button>
               </div>
             </form>
           </CardContent>
@@ -219,35 +322,72 @@ export default function EditAlbumPage() {
             <CardDescription>Add or remove images in this album.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <ImageUpload onSelect={(files) => void handleAddImages(files)} />
-            {uploading && <p className="text-sm text-slate-600">Uploading...</p>}
+            <ImageUpload onSelect={handleAddImages} />
+            {(pendingUploads.length > 0 || imagesToRemove.size > 0) && (
+              <p className="text-xs text-slate-500">
+                Changes to images are staged and will be applied when you save this album.
+              </p>
+            )}
+            {images.length === 0 && pendingUploads.length === 0 && (
+              <p className="text-sm text-slate-500">This album does not have any images yet.</p>
+            )}
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
               {images.map((img) => {
                 const url = supabase.storage.from("album-images").getPublicUrl(img.storage_path).data.publicUrl;
+                const isMarkedForRemoval = imagesToRemove.has(img.storage_path);
                 return (
-                  <div key={img.storage_path} className="relative aspect-square">
+                  <div
+                    key={img.storage_path}
+                    className={cn("relative aspect-square", isMarkedForRemoval && "opacity-70")}
+                  >
                     {url ? (
-                      <Image
-                        src={url}
-                        alt="Album image"
-                        fill
-                        className="rounded-lg object-cover"
-                      />
+                      <Image src={url} alt="Album image" fill className="rounded-lg object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
                         Missing image
                       </div>
                     )}
+                    {isMarkedForRemoval && (
+                      <span className="absolute left-2 top-2 rounded bg-red-600 px-2 py-1 text-xs font-semibold text-white">
+                        Pending removal
+                      </span>
+                    )}
                     <button
                       type="button"
-                      className="absolute right-2 top-2 rounded bg-white/80 px-2 py-1 text-xs text-red-700 shadow hover:bg-white"
-                      onClick={() => void handleDeleteImage(img.storage_path)}
+                      className={cn(
+                        "absolute right-2 top-2 rounded px-2 py-1 text-xs font-medium shadow",
+                        isMarkedForRemoval
+                          ? "bg-white/90 text-slate-800 hover:bg-white"
+                          : "bg-white/90 text-red-700 hover:bg-white"
+                      )}
+                      onClick={() => handleToggleExistingImage(img.storage_path)}
                     >
-                      Delete
+                      {isMarkedForRemoval ? "Undo" : "Remove"}
                     </button>
                   </div>
                 );
               })}
+              {pendingUploads.map((upload) => (
+                <div key={upload.id} className="relative aspect-square">
+                  <Image
+                    src={upload.preview}
+                    alt="Pending upload"
+                    fill
+                    unoptimized
+                    className="rounded-lg object-cover"
+                  />
+                  <span className="absolute left-2 top-2 rounded bg-blue-600 px-2 py-1 text-xs font-semibold text-white">
+                    Pending upload
+                  </span>
+                  <button
+                    type="button"
+                    className="absolute right-2 top-2 rounded bg-white/90 px-2 py-1 text-xs font-medium text-red-700 shadow hover:bg-white"
+                    onClick={() => handleRemovePendingUpload(upload.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
