@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getSupabaseClient } from "@/app/supabase/client";
 import { albumService, type AlbumPreview } from "@/lib/albumService";
 
 import AlbumCard from "@/components/ui/AlbumCard";
@@ -10,8 +9,6 @@ import { Input } from "@/components/ui/input";
 export default function PublicFeedPage() {
   const [albums, setAlbums] = useState<AlbumPreview[]>([]);
   const [q, setQ] = useState("");
-  const supabase = useMemo(() => getSupabaseClient(), []);
-
   useEffect(() => {
     let ignore = false;
     const load = async () => {
@@ -29,7 +26,7 @@ export default function PublicFeedPage() {
     return () => {
       ignore = true;
     };
-  }, [supabase]);
+  }, []);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -60,19 +57,13 @@ export default function PublicFeedPage() {
         <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {filtered.map((album) => {
             // Prefer image with display_order === 0, else fallback to first
-            const images = album.album_images ?? [];
-            const preferred = images.find((img) => img.display_order === 0) ?? images[0];
-            const coverPath = preferred?.storage_path;
-            const publicUrl = coverPath
-              ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl
-              : null;
             return (
               <AlbumCard
                 key={album.id}
                 id={album.id}
                 title={album.title}
                 description={album.description}
-                coverUrl={publicUrl}
+                coverUrl={album.cover_signed_url ?? null}
               />
             );
           })}

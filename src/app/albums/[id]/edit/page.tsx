@@ -333,15 +333,14 @@ export default function EditAlbumPage() {
             )}
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
               {images.map((img) => {
-                const url = supabase.storage.from("album-images").getPublicUrl(img.storage_path).data.publicUrl;
                 const isMarkedForRemoval = imagesToRemove.has(img.storage_path);
                 return (
                   <div
                     key={img.storage_path}
                     className={cn("relative aspect-square", isMarkedForRemoval && "opacity-70")}
                   >
-                    {url ? (
-                      <Image src={url} alt="Album image" fill className="rounded-lg object-cover" />
+                    {img.url ? (
+                      <Image src={img.url} alt="Album image" fill className="rounded-lg object-cover" />
                     ) : (
                       <div className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-500">
                         Missing image

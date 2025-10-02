@@ -1,13 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams } from "next/navigation";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { albumService } from "@/lib/albumService";
-import { getSupabaseClient } from "@/app/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { LoadedAlbumState } from "@/types";
 
@@ -22,8 +21,6 @@ export default function AlbumDetailPage() {
   const params = useParams();
   const albumId = params?.id as string;
   const { user } = useAuth();
-  const supabase = useMemo(() => getSupabaseClient(), []);
-
   const [state, setState] = useState<State>({ kind: "idle" });
 
   useEffect(() => {
@@ -48,22 +45,22 @@ export default function AlbumDetailPage() {
     return () => {
       ignore = true;
     };
-  }, [albumId, supabase, user?.id]);
+  }, [albumId, user?.id]);
 
-  const coverUrl = useMemo(() => {
-    if (state.kind !== "loaded") return null;
-    
-    // Use cover_url from album if available
-    if (state.album.cover_url) {
-      return supabase.storage.from("album-images").getPublicUrl(state.album.cover_url).data.publicUrl;
-    }
-    
-    // Otherwise, try to find first image
-    const preferred = state.images.find((i) => i.display_order === 0) ?? state.images[0];
-    if (!preferred?.storage_path) return null;
-    
-    return supabase.storage.from("album-images").getPublicUrl(preferred.storage_path).data.publicUrl;
-  }, [state, supabase]);
+  const coverUrl = state.kind === "loaded"
+    ? (() => {
+        if (state.album.signed_cover_url) {
+          return state.album.signed_cover_url;
+        }
+        const albumCoverPath = state.album.cover_url;
+        const coverFromAlbum = albumCoverPath
+          ? state.images.find((image) => image.storage_path === albumCoverPath)?.url
+          : null;
+        if (coverFromAlbum) return coverFromAlbum;
+        const preferred = state.images.find((image) => image.display_order === 0) ?? state.images[0];
+        return preferred?.url ?? null;
+      })()
+    : null;
 
   if (state.kind === "error") {
     return (
@@ -150,18 +147,20 @@ export default function AlbumDetailPage() {
                   This album has no images yet.
                 </div>
               )}
-              {state.images.map((img) => {
-                const url = supabase.storage.from("album-images").getPublicUrl(img.storage_path).data.publicUrl;
-                return (
-                  <div key={img.storage_path} className="relative aspect-square w-full overflow-hidden rounded-lg bg-slate-100">
-                    {url ? (
-                      <Image src={url} alt="Album image" fill className="object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">Missing image</div>
-                    )}
-                  </div>
-                );
-              })}
+              {state.images.map((img) => (
+                <div
+                  key={img.storage_path}
+                  className="relative aspect-square w-full overflow-hidden rounded-lg bg-slate-100"
+                >
+                  {img.url ? (
+                    <Image src={img.url} alt="Album image" fill className="object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs text-slate-500">
+                      Missing image
+                    </div>
+                  )}
+                </div>
+              ))}
             </section>
           </>
         )}

@@ -1,5 +1,21 @@
 import { getSupabaseClient } from "@/app/supabase/client";
 import type { Album, AlbumImage } from "@/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+type StorageBucketApi = ReturnType<SupabaseClient["storage"]["from"]>;
+
+const ALBUM_IMAGES_BUCKET = "album-images";
+
+const getPublicUrlForPath = (
+  storage: StorageBucketApi,
+  path: string | null | undefined
+): string | null => {
+  if (!path) return null;
+  const { data } = storage.getPublicUrl(path);
+  return data?.publicUrl ?? null;
+};
+
+export type AlbumImageRow = Pick<AlbumImage, "storage_path" | "display_order" | "url">;
 
 export type AlbumPreview = {
   id: string;
@@ -8,12 +24,13 @@ export type AlbumPreview = {
   created_at: string;
   privacy: Album["privacy"];
   user_id: string;
-  album_images: Array<Pick<AlbumImage, "storage_path" | "display_order">> | null;
+  album_images: AlbumImageRow[] | null;
   profiles?: {
     id: string;
     username: string | null;
     full_name: string | null;
   };
+  cover_signed_url?: string | null;
 };
 
 export type AlbumDetailsWithCreator = {
@@ -23,14 +40,14 @@ export type AlbumDetailsWithCreator = {
   created_at: string;
   privacy: Album["privacy"];
   user_id: string;
+  cover_url: string | null;
+  signed_cover_url?: string | null;
   profiles?: {
     id: string;
     username: string | null;
     full_name: string | null;
   };
 };
-
-export type AlbumImageRow = Pick<AlbumImage, "storage_path" | "display_order">;
 
 type CreateAlbumInput = {
   user_id: string;
@@ -50,7 +67,11 @@ const mapAlbumImages = (value: unknown): AlbumImageRow[] => {
       if (typeof storagePath !== "string" || storagePath.length === 0) return null;
       const displayOrderValue = (image as { display_order?: unknown }).display_order;
       const displayOrder = typeof displayOrderValue === "number" ? displayOrderValue : 0;
-      return { storage_path: storagePath, display_order: displayOrder } satisfies AlbumImageRow;
+      return {
+        storage_path: storagePath,
+        display_order: displayOrder,
+        url: null,
+      } satisfies AlbumImageRow;
     })
     .filter((item): item is AlbumImageRow => item !== null);
 };
@@ -92,6 +113,7 @@ const mapAlbumPreview = (row: unknown): AlbumPreview | null => {
     privacy,
     user_id: userId,
     album_images: mapAlbumImages(source.album_images),
+    cover_signed_url: null,
     profiles: mapProfile(source.profiles),
   };
 };
@@ -116,8 +138,81 @@ const mapAlbumDetails = (row: unknown): AlbumDetailsWithCreator | null => {
     created_at: createdAt,
     privacy,
     user_id: userId,
+    cover_url: typeof source.cover_url === "string" ? source.cover_url : null,
+    signed_cover_url: null,
     profiles: mapProfile(source.profiles),
   };
+};
+
+const createSignedUrlMap = async (
+  supabase: SupabaseClient,
+  paths: string[],
+  expiresIn: number = 60 * 60
+) => {
+  const uniquePaths = Array.from(new Set(paths.filter(Boolean)));
+  if (uniquePaths.length === 0) {
+    return new Map<string, string>();
+  }
+
+  const { data, error } = await supabase.storage
+    .from(ALBUM_IMAGES_BUCKET)
+    .createSignedUrls(uniquePaths, expiresIn);
+
+  if (error) {
+    console.error('Failed to create signed URLs', error);
+    return new Map<string, string>();
+  }
+
+  const map = new Map<string, string>();
+  for (const item of data ?? []) {
+    if (!item || typeof item !== 'object') continue;
+    const path = (item as { path?: unknown }).path;
+    const signedUrl = (item as { signedUrl?: unknown }).signedUrl;
+    if (typeof path === 'string' && typeof signedUrl === 'string') {
+      map.set(path, signedUrl);
+    }
+  }
+  return map;
+};
+
+const attachCoverSignedUrls = async (
+  supabase: SupabaseClient,
+  albums: AlbumPreview[]
+): Promise<AlbumPreview[]> => {
+  if (albums.length === 0) {
+    return albums;
+  }
+
+  const covers = albums.map((album) => {
+    const images = album.album_images ?? [];
+    const preferred = images.find((image) => image.display_order === 0) ?? images[0];
+    return {
+      album,
+      coverPath: preferred?.storage_path ?? null,
+    };
+  });
+
+  const allCoverPaths = covers
+    .map(({ coverPath }) => coverPath)
+    .filter((path): path is string => Boolean(path));
+
+  const signedMap = await createSignedUrlMap(supabase, allCoverPaths);
+  const storage = supabase.storage.from(ALBUM_IMAGES_BUCKET);
+
+  return covers.map(({ album, coverPath }) => {
+    if (!coverPath) {
+      return { ...album, cover_signed_url: null };
+    }
+
+    const isPublic = album.privacy === "public";
+    const publicUrl = isPublic ? getPublicUrlForPath(storage, coverPath) : null;
+    const fallbackSignedUrl = signedMap.get(coverPath) ?? null;
+
+    return {
+      ...album,
+      cover_signed_url: publicUrl ?? fallbackSignedUrl,
+    };
+  });
 };
 
 export const albumService = {
@@ -130,9 +225,11 @@ export const albumService = {
       .eq('privacy', 'public')
       .order('created_at', { ascending: false });
     if (error) throw error;
-    return (data ?? [])
+    const albums = (data ?? [])
       .map(mapAlbumPreview)
       .filter((album): album is AlbumPreview => album !== null);
+
+    return attachCoverSignedUrls(supabase, albums);
   },
   // Get all albums for a user
   async getUserAlbumsWithCreators(userId: string): Promise<AlbumPreview[]> {
@@ -144,9 +241,11 @@ export const albumService = {
       .order('created_at', { ascending: false });
     
     if (error) throw error;
-    return (data ?? [])
+    const albums = (data ?? [])
       .map(mapAlbumPreview)
       .filter((album): album is AlbumPreview => album !== null);
+
+    return attachCoverSignedUrls(supabase, albums);
   },
 
   // Get single album with images
@@ -160,9 +259,44 @@ export const albumService = {
     if (albumResponse.error) throw albumResponse.error;
     if (imagesResponse.error) throw imagesResponse.error;
 
+    const album = albumResponse.data as Album;
+    const imageRows = (imagesResponse.data ?? []) as AlbumImage[];
+    const storage = supabase.storage.from(ALBUM_IMAGES_BUCKET);
+    const allPaths = [
+      ...imageRows.map((img) => img.storage_path),
+      album.cover_url ?? '',
+    ].filter(Boolean);
+    const signedMap = await createSignedUrlMap(supabase, allPaths);
+    const isPublicAlbum = album.privacy === 'public';
+
+    const resolveUrl = (
+      path: string | null | undefined,
+      existing?: string | null
+    ): string | null => {
+      if (!path) {
+        return existing ?? null;
+      }
+
+      if (isPublicAlbum) {
+        const publicUrl = getPublicUrlForPath(storage, path);
+        if (publicUrl) {
+          return publicUrl;
+        }
+      }
+
+      return signedMap.get(path) ?? existing ?? null;
+    };
+
+    const imagesWithUrls = imageRows.map((image) => ({
+      ...image,
+      url: resolveUrl(image.storage_path, image.url ?? null),
+    }));
+
+    const coverUrl = resolveUrl(album.cover_url ?? null, album.signed_cover_url ?? null);
+
     return {
-      album: albumResponse.data as Album,
-      images: (imagesResponse.data ?? []) as AlbumImage[]
+      album: { ...album, signed_cover_url: coverUrl },
+      images: imagesWithUrls,
     };
   },
 
@@ -171,7 +305,7 @@ export const albumService = {
     const supabase = getSupabaseClient();
     const { data: album, error } = await supabase
       .from('albums')
-      .select('id, title, description, created_at, privacy, user_id, profiles:profiles!albums_user_id_fkey(id, username, full_name)')
+      .select('id, title, description, created_at, privacy, user_id, cover_url, profiles:profiles!albums_user_id_fkey(id, username, full_name)')
       .eq('id', albumId)
       .single();
     if (error) throw error;
@@ -187,9 +321,36 @@ export const albumService = {
       throw new Error("Failed to load album metadata");
     }
 
+    const imageRows = mapAlbumImages(images ?? []);
+    const allPaths = [
+      ...imageRows.map((img) => img.storage_path),
+      mappedAlbum.cover_url ?? '',
+    ].filter(Boolean);
+    const signedMap = await createSignedUrlMap(supabase, allPaths);
+    const storage = supabase.storage.from(ALBUM_IMAGES_BUCKET);
+    const isPublicAlbum = mappedAlbum.privacy === 'public';
+
+    const resolveUrl = (
+      path: string | null | undefined,
+      existing?: string | null
+    ): string | null => {
+      if (!path) {
+        return existing ?? null;
+      }
+
+      if (isPublicAlbum) {
+        const publicUrl = getPublicUrlForPath(storage, path);
+        if (publicUrl) {
+          return publicUrl;
+        }
+      }
+
+      return signedMap.get(path) ?? existing ?? null;
+    };
+
     return {
-      album: mappedAlbum,
-      images: mapAlbumImages(images ?? []),
+      album: { ...mappedAlbum, signed_cover_url: resolveUrl(mappedAlbum.cover_url, mappedAlbum.signed_cover_url ?? null) },
+      images: imageRows.map((img) => ({ ...img, url: resolveUrl(img.storage_path, img.url ?? null) })),
     };
   },
 

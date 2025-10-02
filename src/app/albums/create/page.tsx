@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import slugify from "slugify";
 
@@ -49,7 +49,7 @@ type UploadProgress = Record<string, number>;
 
 export default function CreateAlbumPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const { alert, showAlert, clearAlert } = useAlert();
   const supabase = useMemo(() => getSupabaseClient(), []);
 
@@ -63,6 +63,16 @@ export default function CreateAlbumPage() {
   const [uploadProgress, setUploadProgress] = useState<UploadProgress>({});
 
   const isOverFileLimit = useMemo(() => files.length > MAX_FILES, [files.length]);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace(`/login?next=/albums/create`);
+    }
+  }, [loading, router, user]);
+
+  if (!loading && !user) {
+    return null;
+  }
 
   const removeFile = (index: number) => {
     setFiles((prev) => {
@@ -112,7 +122,7 @@ export default function CreateAlbumPage() {
       });
 
       const albumId = created.id;
-      const uploadedPhotos: { url: string; path: string }[] = [];
+      const uploadedPhotos: { path: string }[] = [];
 
       // Upload images
       for (const file of parsed.files) {
@@ -131,14 +141,8 @@ export default function CreateAlbumPage() {
 
         if (uploadError) throw new Error(`Upload failed: ${uploadError.message}`);
 
-        const { data: publicUrlData } = supabase.storage
-          .from(ALBUM_IMAGES_BUCKET)
-          .getPublicUrl(filePath);
-
-        if (publicUrlData?.publicUrl) {
-          uploadedPhotos.push({ url: publicUrlData.publicUrl, path: filePath });
-          setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }));
-        }
+        uploadedPhotos.push({ path: filePath });
+        setUploadProgress((prev) => ({ ...prev, [file.name]: 100 }));
       }
 
       // Create photo records and update album cover

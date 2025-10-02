@@ -19,6 +19,7 @@ export interface Album extends BaseModel {
   privacy: AlbumPrivacy;
   cover_url: string | null;
   slug: string;
+  signed_cover_url?: string | null;
   profiles?: {
     username: string | null;
     full_name: string | null;
@@ -29,7 +30,7 @@ export interface AlbumImage extends Omit<BaseModel, 'updated_at'> {
   album_id: string;
   storage_path: string;
   display_order: number;
-  url?: string;
+  url?: string | null;
   caption?: string | null;
 }
 

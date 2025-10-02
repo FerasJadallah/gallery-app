@@ -74,18 +74,12 @@ export default function DashboardPage() {
       const data = await albumService.getUserAlbumsWithCreators(user.id);
 
       const parsed: Album[] = data.map((row: AlbumPreview) => {
-        const images = row.album_images ?? [];
-        const preferred = images.find((image) => image.display_order === 0) ?? images[0];
-        const coverPath = preferred?.storage_path;
-        const coverUrl = coverPath
-          ? supabase.storage.from("album-images").getPublicUrl(coverPath).data.publicUrl
-          : null;
         return {
           id: row.id,
           title: row.title ?? "Untitled album",
           description: row.description ?? null,
           createdAt: row.created_at,
-          coverUrl,
+          coverUrl: row.cover_signed_url ?? null,
           privacy: row.privacy === "public" ? "public" : "private",
           creator: row.profiles
             ? {
@@ -106,7 +100,7 @@ export default function DashboardPage() {
       return;
     }
 
-  }, [clearAlert, showAlert, supabase, user]);
+  }, [clearAlert, showAlert, user]);
 
   useEffect(() => {
     if (!authLoading && !user) {
