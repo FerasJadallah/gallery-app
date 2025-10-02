@@ -98,26 +98,47 @@ export default function CreateAlbumPage() {
     setErrors({});
 
     const slug = slugify(title.toLowerCase(), { strict: true });
+    const parsed = albumSchema.safeParse({
+      title: title.trim(),
+      slug,
+      description: description.trim(),
+      privacy,
+      files,
+    });
 
-    try {
-      const parsed = albumSchema.parse({
-        title: title.trim(),
-        slug,
-        description: description.trim(),
-        privacy,
-        files,
+    if (!parsed.success) {
+      const fieldErrors = parsed.error.flatten().fieldErrors;
+      setErrors({
+        title: fieldErrors.title?.[0],
+        description: fieldErrors.description?.[0],
+        privacy: fieldErrors.privacy?.[0],
+        files: fieldErrors.files?.[0],
       });
 
-      setIsSubmitting(true);
-      setUploadProgress({});
+      const alertMessage =
+        fieldErrors.files?.[0] ||
+        fieldErrors.title?.[0] ||
+        fieldErrors.description?.[0] ||
+        fieldErrors.privacy?.[0] ||
+        "Please fix the highlighted issues and try again.";
 
+      showAlert("error", alertMessage);
+      return;
+    }
+
+    const formValues = parsed.data;
+
+    setIsSubmitting(true);
+    setUploadProgress({});
+
+    try {
       // Create album record via service
       const created = await albumService.createAlbum({
         user_id: user.id,
-        title: parsed.title,
-        slug: parsed.slug,
-        description: parsed.description || null,
-        privacy: parsed.privacy,
+        title: formValues.title,
+        slug: formValues.slug,
+        description: formValues.description || null,
+        privacy: formValues.privacy,
         cover_url: null,
       });
 
@@ -125,7 +146,7 @@ export default function CreateAlbumPage() {
       const uploadedPhotos: { path: string }[] = [];
 
       // Upload images
-      for (const file of parsed.files) {
+      for (const file of formValues.files) {
         const fileExt = file.name.split(".").pop();
         const filePath = `${user.id}/${albumId}/${crypto.randomUUID()}.${fileExt}`;
 

@@ -20,6 +20,7 @@ import { AlbumImage } from "@/types";
 import { cn } from "@/lib/utils";
 
 const LINK_CLASSES = "inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white";
+const MAX_FILES = 5;
 
 type PendingUpload = {
   id: string;
@@ -108,6 +109,12 @@ export default function EditAlbumPage() {
     const removals = Array.from(imagesToRemove);
     const pendingUploadsSnapshot = [...pendingUploads];
 
+    const resultingCount = images.length - removals.length + pendingUploadsSnapshot.length;
+    if (resultingCount > MAX_FILES) {
+      showAlert("error", `An album can contain at most ${MAX_FILES} images.`);
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       await albumService.updateAlbum(albumId, {
@@ -171,6 +178,19 @@ export default function EditAlbumPage() {
   };
 
   const handleAddImages = (files: File[]) => {
+    if (files.length === 0) return;
+
+    const keptImagesCount = images.filter((img) => !imagesToRemove.has(img.storage_path)).length;
+    const totalWithNew = keptImagesCount + pendingUploads.length + files.length;
+
+    if (totalWithNew > MAX_FILES) {
+      showAlert(
+        "error",
+        `You can only keep up to ${MAX_FILES} images in this album. Remove some before adding more.`
+      );
+      return;
+    }
+
     const newUploads = files.map((file) => ({
       id: createUid(),
       file,
