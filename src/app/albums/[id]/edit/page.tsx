@@ -21,6 +21,7 @@ import { cn } from "@/lib/utils";
 
 const LINK_CLASSES = "inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-900 transition hover:border-slate-400 hover:bg-white";
 const MAX_FILES = 5;
+const MAX_DESCRIPTION_LENGTH = 500;
 
 type PendingUpload = {
   id: string;
@@ -49,6 +50,7 @@ export default function EditAlbumPage() {
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const pendingUploadsRef = useRef<PendingUpload[]>([]);
   const [isDeletingAlbum, setIsDeletingAlbum] = useState(false);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     pendingUploadsRef.current = pendingUploads;
@@ -78,6 +80,12 @@ export default function EditAlbumPage() {
         setTitle(album.title ?? "");
         setDescription(album.description ?? "");
         setPrivacy(album.privacy === "public" ? "public" : "private");
+        const loadedDescription = album.description ?? "";
+        setDescriptionError(
+          loadedDescription.length > MAX_DESCRIPTION_LENGTH
+            ? `Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters.`
+            : null
+        );
         setImages(albumImages ?? []);
         setImagesToRemove(new Set());
         setPendingUploads((prev) => {
@@ -103,6 +111,12 @@ export default function EditAlbumPage() {
 
     if (!user) {
       showAlert("error", "You must be signed in to update this album.");
+      return;
+    }
+
+    if (description.length > MAX_DESCRIPTION_LENGTH) {
+      setDescriptionError(`Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters.`);
+      showAlert("error", `Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters.`);
       return;
     }
 
@@ -285,9 +299,26 @@ export default function EditAlbumPage() {
                 <Textarea
                   id="description"
                   value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setDescription(value);
+                    setDescriptionError(
+                      value.length > MAX_DESCRIPTION_LENGTH
+                        ? `Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters.`
+                        : null
+                    );
+                  }}
                   rows={4}
+                  maxLength={MAX_DESCRIPTION_LENGTH}
                 />
+                <p
+                  className={`text-xs text-right ${
+                    description.length >= MAX_DESCRIPTION_LENGTH ? "text-red-600" : "text-slate-500"
+                  }`}
+                >
+                  {description.length}/{MAX_DESCRIPTION_LENGTH} characters
+                </p>
+                {descriptionError && <p className="text-xs text-red-600">{descriptionError}</p>}
               </div>
 
               <div className="space-y-1">

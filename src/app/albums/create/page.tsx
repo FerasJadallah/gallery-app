@@ -20,6 +20,7 @@ import { useAlert } from "@/hooks/use-alert";
 import { useAuth } from "@/contexts/AuthContext";
 
 const MAX_FILES = 5;
+const MAX_DESCRIPTION_LENGTH = 500;
 const ALBUM_IMAGES_BUCKET = "album-images";
 
 // Enhanced schema with slug generation
@@ -236,12 +237,27 @@ export default function CreateAlbumPage() {
                   id="description"
                   value={description}
                   onChange={(e) => {
-                    setDescription(e.target.value);
-                    setErrors((prev) => ({ ...prev, description: undefined }));
+                    const value = e.target.value;
+                    setDescription(value);
+                    setErrors((prev) => ({
+                      ...prev,
+                      description:
+                        value.length > MAX_DESCRIPTION_LENGTH
+                          ? `Description cannot exceed ${MAX_DESCRIPTION_LENGTH} characters.`
+                          : undefined,
+                    }));
                   }}
                   placeholder="Optional summary for your album"
                   rows={4}
+                  maxLength={MAX_DESCRIPTION_LENGTH}
                 />
+                <p
+                  className={`text-xs text-right ${
+                    description.length >= MAX_DESCRIPTION_LENGTH ? "text-red-600" : "text-slate-500"
+                  }`}
+                >
+                  {description.length}/{MAX_DESCRIPTION_LENGTH} characters
+                </p>
                 {errors.description && (
                   <p className="text-xs text-red-600">{errors.description}</p>
                 )}
